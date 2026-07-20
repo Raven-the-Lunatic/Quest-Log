@@ -1,0 +1,1608 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { jsPDF } from "jspdf";
+import {
+  Sword,
+  BookOpen,
+  Users,
+  Package,
+  Quote,
+  Plus,
+  Trash2,
+  Menu,
+  X,
+  Feather,
+  Home,
+  Sparkles,
+  Star,
+  MapPin,
+  Shield,
+  Flame,
+  Compass,
+  Gem,
+  Skull,
+  Wand2,
+  Map as MapIcon,
+  Heart,
+  Dices,
+  Check,
+  Copy,
+  ClipboardPaste,
+  Mic,
+  MicOff,
+  Crown,
+  Cloud,
+  FileText,
+  Share2,
+} from "lucide-react";
+
+// ---- Design tokens ----
+// bg-void #0a0714 | bg-deep #150c26 | panel #1c1130 | purple #7c4dc4 | purple-glow #a970ff
+// blue #5b8fd6 | gold #c9a961 | text #e9e2f5 | text-dim #9c8fb8
+
+const ICON_MAP = {
+  Sword,
+  BookOpen,
+  Users,
+  Package,
+  Quote,
+  Sparkles,
+  Star,
+  MapPin,
+  Shield,
+  Flame,
+  Compass,
+  Gem,
+  Skull,
+  Wand2,
+  MapIcon,
+  Heart,
+  Dices,
+};
+
+const ICON_CHOICES = [
+  "Sword",
+  "BookOpen",
+  "Users",
+  "Package",
+  "Quote",
+  "Sparkles",
+  "Star",
+  "MapPin",
+  "Shield",
+  "Flame",
+  "Compass",
+  "Gem",
+  "Skull",
+  "Wand2",
+  "MapIcon",
+  "Heart",
+  "Dices",
+];
+
+// Colorblind-safe palette (adapted from Okabe-Ito), brightened for a dark background.
+// Chosen so hues stay distinguishable under deuteranopia, protanopia, and tritanopia —
+// category icons remain the primary identifier, color is a secondary cue.
+// UI chrome themes — background/panel/border/text/logo colors. Category accent
+// colors stay constant across themes (they're deliberately colorblind-safe and
+// tied to category identity, not to the app's visual skin).
+const THEME_PALETTES = {
+  purple: {
+    label: "Purple",
+    swatch: "#a970ff",
+    bgA: "#1c1130",
+    bgB: "#0a0714",
+    bgC: "#060410",
+    panelHeader: "#120a20e6",
+    panelHeaderHover: "#1a1028",
+    panelList: "#0e0819cc",
+    panelForm: "#170e29",
+    panelCard: "#150c26",
+    activeBg: "#241638",
+    hoverBg: "#33224d",
+    borderStrong: "#2a1c42",
+    borderMed: "#221737",
+    borderSoft: "#3a2a5c",
+    textPrimary: "#e9e2f5",
+    textBright: "#f0e9fa",
+    textDim1: "#9c8fb8",
+    textDim2: "#8a7ba8",
+    textDim3: "#7a6c9c",
+    textDim4: "#6d5f8c",
+    textDim5: "#5c4f7c",
+    textDim6: "#4d4066",
+    contentText: "#d9d0ea",
+    logoFrom: "#a970ff",
+    logoTo: "#5b8fd6",
+  },
+  green: {
+    label: "Green",
+    swatch: "#6fe0a0",
+    bgA: "#122a1c",
+    bgB: "#071309",
+    bgC: "#040a06",
+    panelHeader: "#0b1f12e6",
+    panelHeaderHover: "#0f2617",
+    panelList: "#081a0dcc",
+    panelForm: "#0e2015",
+    panelCard: "#0c1c11",
+    activeBg: "#16331f",
+    hoverBg: "#20402a",
+    borderStrong: "#1c3a26",
+    borderMed: "#173020",
+    borderSoft: "#2e5c3a",
+    textPrimary: "#e2f5e6",
+    textBright: "#eafaee",
+    textDim1: "#9cb8a2",
+    textDim2: "#89a892",
+    textDim3: "#7a9c83",
+    textDim4: "#6d8c75",
+    textDim5: "#5c7c64",
+    textDim6: "#4d6654",
+    contentText: "#d5ead9",
+    logoFrom: "#6fe0a0",
+    logoTo: "#4fae8f",
+  },
+  red: {
+    label: "Red",
+    swatch: "#ff8f70",
+    bgA: "#2a1512",
+    bgB: "#130808",
+    bgC: "#0a0505",
+    panelHeader: "#200d0be6",
+    panelHeaderHover: "#291310",
+    panelList: "#1a0908cc",
+    panelForm: "#200f0e",
+    panelCard: "#1c0d0c",
+    activeBg: "#331a16",
+    hoverBg: "#40241f",
+    borderStrong: "#3a1e1c",
+    borderMed: "#301917",
+    borderSoft: "#5c332e",
+    textPrimary: "#f5e4e2",
+    textBright: "#faeceb",
+    textDim1: "#b89a8f",
+    textDim2: "#a8867b",
+    textDim3: "#9c766c",
+    textDim4: "#8c685f",
+    textDim5: "#7c584f",
+    textDim6: "#664740",
+    contentText: "#ead4d0",
+    logoFrom: "#ff8f70",
+    logoTo: "#d65b5b",
+  },
+  blue: {
+    label: "Blue",
+    swatch: "#70b8ff",
+    bgA: "#101c30",
+    bgB: "#070d16",
+    bgC: "#04070c",
+    panelHeader: "#0b1524e6",
+    panelHeaderHover: "#0f1c2e",
+    panelList: "#081120cc",
+    panelForm: "#0e1a28",
+    panelCard: "#0c1524",
+    activeBg: "#16283f",
+    hoverBg: "#20344d",
+    borderStrong: "#1c2f4a",
+    borderMed: "#17283f",
+    borderSoft: "#2e4f6b",
+    textPrimary: "#e2ecf5",
+    textBright: "#eaf2fa",
+    textDim1: "#8fa3b8",
+    textDim2: "#7b90a8",
+    textDim3: "#6c839c",
+    textDim4: "#5f748c",
+    textDim5: "#4f647c",
+    textDim6: "#405066",
+    contentText: "#d0e0ea",
+    logoFrom: "#70b8ff",
+    logoTo: "#5b7fd6",
+  },
+};
+
+const COLOR_CHOICES = [
+  "#E8A33D", // orange
+  "#4A90D9", // blue
+  "#D682B0", // reddish purple
+  "#2FBF8F", // bluish green
+  "#E0623D", // vermillion
+  "#F0D659", // yellow
+  "#56B4E9", // sky blue
+  "#B8B0D0", // neutral silver
+];
+
+const BUILTIN_CATEGORIES = [
+  { key: "quest", label: "Quests", icon: "Sword", accent: "#E8A33D", builtin: true, type: "text" },
+  { key: "journal", label: "Journal", icon: "BookOpen", accent: "#4A90D9", builtin: true, type: "text" },
+  { key: "npcs", label: "NPCs", icon: "Users", accent: "#D682B0", builtin: true, type: "text" },
+  { key: "backstory", label: "PC Backstory", icon: "Heart", accent: "#56B4E9", builtin: true, type: "text" },
+  { key: "inventory", label: "Inventory", icon: "Package", accent: "#2FBF8F", builtin: true, type: "text" },
+  { key: "quotes", label: "Game Quotes", icon: "Quote", accent: "#E0623D", builtin: true, type: "text" },
+  { key: "maps", label: "Maps & Sketches", icon: "MapIcon", accent: "#F0D659", builtin: true, type: "sketch", singular: "Maps & Sketches" },
+];
+
+const SKETCH_COLORS = ["#1c140a", "#4a2a1c", "#7a1f1f", "#1f3a5c", "#1f5c3a", "#5c3a7a"];
+const SKETCH_BG = "#ece0c4";
+const SKETCH_SIZES = [3, 6, 12];
+
+const PLACEHOLDERS = {
+  quest: "What's the objective? Who gave the quest? What's the reward…",
+  npcs: "Name, appearance, motives, secrets, relationship to the party…",
+  backstory: "Where they're from, what shaped them, secrets, motivations, ties to the world…",
+  inventory: "Item name, quantity, properties, where it was found…",
+  journal: "What happened this session…",
+  quotes: "Who said it? What was happening when they said it…",
+};
+
+const STORAGE_KEY = "questlog-notes-v2";
+const PREMIUM_KEY = "questlog-premium-v1";
+
+// Stripe Payment Links — configure these in .env (see .env.example). Each Payment Link's
+// "after payment" redirect should point back at this app with `?upgraded=1` appended so
+// unlockPremiumFromUrl() below can pick it up. No secret keys involved — Payment Links are
+// public checkout URLs, safe to ship in a client-only app with no backend.
+const PAYMENT_LINKS = {
+  monthly: import.meta.env.VITE_STRIPE_LINK_MONTHLY || "",
+  yearly: import.meta.env.VITE_STRIPE_LINK_YEARLY || "",
+  lifetime: import.meta.env.VITE_STRIPE_LINK_LIFETIME || "",
+};
+
+function migrateCategories(saved) {
+  let cats = saved.map((c) => ({ ...c, type: c.type || "text" }));
+  // Backfill the singular override for anyone who saved a "maps" category before this fix existed
+  cats = cats.map((c) => (c.key === "maps" && !c.singular ? { ...c, singular: "Maps & Sketches" } : c));
+  // Inject any built-in category the user's saved data predates (e.g. Maps & Sketches, PC Backstory)
+  BUILTIN_CATEGORIES.forEach((builtinCat) => {
+    if (!cats.some((c) => c.key === builtinCat.key)) {
+      const lastBuiltinIdx = cats.reduce((acc, c, i) => (c.builtin ? i : acc), -1);
+      cats.splice(lastBuiltinIdx + 1, 0, builtinCat);
+    }
+  });
+  return cats;
+}
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function slugify(label) {
+  const base = label
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return `${base || "category"}-${uid()}`;
+}
+
+function timeAgo(ts) {
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function buildEmptyNotes(categories) {
+  const obj = {};
+  categories.forEach((c) => (obj[c.key] = []));
+  return obj;
+}
+
+function exportCampaignToPdf(categories, notes) {
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 54;
+  const contentWidth = pageWidth - margin * 2;
+  let y = margin;
+
+  const ensureSpace = (needed) => {
+    if (y + needed > pageHeight - margin) {
+      doc.addPage();
+      y = margin;
+    }
+  };
+
+  doc.setFont("times", "bold");
+  doc.setFontSize(24);
+  doc.text("Quest Log — Campaign Log", margin, y);
+  y += 22;
+  doc.setFont("times", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(110, 110, 110);
+  doc.text(`Exported ${new Date().toLocaleDateString()}`, margin, y);
+  doc.setTextColor(20, 20, 20);
+  y += 34;
+
+  categories.forEach((cat) => {
+    const entries = (notes[cat.key] || []).slice().sort((a, b) => b.updatedAt - a.updatedAt);
+    if (entries.length === 0) return;
+
+    ensureSpace(40);
+    doc.setFont("times", "bold");
+    doc.setFontSize(17);
+    doc.text(cat.label, margin, y);
+    y += 8;
+    doc.setDrawColor(180, 180, 180);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 22;
+
+    entries.forEach((note) => {
+      ensureSpace(30);
+      doc.setFont("times", "bold");
+      doc.setFontSize(13);
+      doc.text(note.title || "Untitled entry", margin, y);
+      y += 16;
+
+      if (cat.type === "sketch") {
+        if (note.image) {
+          const imgWidth = contentWidth;
+          const imgHeight = imgWidth * (640 / 1000);
+          ensureSpace(imgHeight + 20);
+          doc.addImage(note.image, "PNG", margin, y, imgWidth, imgHeight);
+          y += imgHeight + 24;
+        } else {
+          y += 12;
+        }
+      } else {
+        doc.setFont("times", "normal");
+        doc.setFontSize(11);
+        const lines = doc.splitTextToSize(note.content || "(no content)", contentWidth);
+        lines.forEach((line) => {
+          ensureSpace(15);
+          doc.text(line, margin, y);
+          y += 15;
+        });
+        y += 14;
+      }
+    });
+    y += 10;
+  });
+
+  doc.save(`quest-log-campaign-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+// Feather quill over parchment logo mark
+function QuillMark({ size = 40, glow = true, logoFrom = "#a970ff", logoTo = "#5b8fd6" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+      <defs>
+        <radialGradient id="inkGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#ffd98e" />
+          <stop offset="100%" stopColor="#c9a961" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="quillGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={logoFrom} />
+          <stop offset="100%" stopColor={logoTo} />
+        </linearGradient>
+      </defs>
+
+      {/* Parchment, folded corner */}
+      <path
+        d="M14 54 H62 L70 62 V84 Q70 86 68 86 H16 Q14 86 14 84 Z"
+        stroke="url(#quillGrad)"
+        strokeWidth="2"
+        fill="none"
+        strokeLinejoin="round"
+      />
+      <path d="M62 54 V62 H70" stroke="url(#quillGrad)" strokeWidth="2" fill="none" strokeLinejoin="round" />
+      <line x1="21" y1="66" x2="55" y2="66" stroke="url(#quillGrad)" strokeWidth="1.3" opacity="0.7" />
+      <line x1="21" y1="73" x2="60" y2="73" stroke="url(#quillGrad)" strokeWidth="1.3" opacity="0.7" />
+      <line x1="21" y1="80" x2="48" y2="80" stroke="url(#quillGrad)" strokeWidth="1.3" opacity="0.7" />
+
+      {/* Quill feather, nib resting on the parchment */}
+      <path
+        d="M84 10 C90 20 87 33 78 44 C69 55 58 63 47 72 C40 78 34 82 29 86
+           C33 80 38 74 45 66 C55 56 66 46 74 35 C81 26 82 18 84 10 Z"
+        stroke="url(#quillGrad)"
+        strokeWidth="2"
+        fill="none"
+        strokeLinejoin="round"
+      />
+      <path d="M29 86 L83 12" stroke="url(#quillGrad)" strokeWidth="1.4" />
+      <path
+        d="M42 68 L34 74 M50 60 L43 67 M58 52 L51 59 M66 43 L59 50 M73 34 L67 41"
+        stroke="url(#quillGrad)"
+        strokeWidth="1"
+        opacity="0.6"
+      />
+
+      <circle cx="29" cy="86" r={glow ? 4 : 2.4} fill="url(#inkGlow)" className={glow ? "animate-pulse" : ""} />
+      <circle cx="29" cy="86" r="1.3" fill="#2a1740" />
+    </svg>
+  );
+}
+
+// Large faint background watermark of the quill and parchment
+function QuillWatermark({
+  className = "pointer-events-none absolute -right-8 top-6 opacity-[0.06] select-none",
+  size = 320,
+  style,
+  stroke = "#a970ff",
+}) {
+  return (
+    <svg className={className} style={style} width={size} height={size} viewBox="0 0 200 200" fill="none">
+      <path
+        d="M28 108 H124 L140 124 V168 Q140 172 136 172 H32 Q28 172 28 168 Z"
+        stroke={stroke}
+        strokeWidth="1.4"
+        fill="none"
+      />
+      <path d="M124 108 V124 H140" stroke={stroke} strokeWidth="1.4" fill="none" />
+      <line x1="42" y1="132" x2="110" y2="132" stroke={stroke} strokeWidth="1" opacity="0.7" />
+      <line x1="42" y1="146" x2="120" y2="146" stroke={stroke} strokeWidth="1" opacity="0.7" />
+      <line x1="42" y1="160" x2="96" y2="160" stroke={stroke} strokeWidth="1" opacity="0.7" />
+      <path
+        d="M168 20 C180 40 174 66 156 88 C138 110 116 126 94 144 C80 156 68 164 58 172
+           C66 160 76 148 90 132 C110 112 132 92 148 70 C162 52 164 36 168 20 Z"
+        stroke={stroke}
+        strokeWidth="1.4"
+        fill="none"
+      />
+      <path d="M58 172 L166 24" stroke={stroke} strokeWidth="1" />
+      <path
+        d="M84 136 L68 148 M100 120 L86 134 M116 104 L102 118 M132 86 L118 100 M146 68 L134 82"
+        stroke={stroke}
+        strokeWidth="0.8"
+        opacity="0.6"
+      />
+    </svg>
+  );
+}
+
+function CategoryIcon({ name, size = 17, style }) {
+  const Icon = ICON_MAP[name] || Sparkles;
+  return <Icon size={size} style={style} />;
+}
+
+function SketchPad({ note, onChange, accent, T }) {
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+  const lastPointRef = useRef(null);
+  const [color, setColor] = useState(SKETCH_COLORS[0]);
+  const [size, setSize] = useState(SKETCH_SIZES[1]);
+  const [erasing, setErasing] = useState(false);
+
+  // Load the note's saved sketch whenever we switch to a different note
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = SKETCH_BG;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (note.image) {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      img.src = note.image;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id]);
+
+  // Allow pasting an image (e.g. a screenshotted map) straight onto the canvas
+  useEffect(() => {
+    const handlePaste = (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.indexOf("image") === -1) continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        e.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const ctx = canvas.getContext("2d");
+            const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+            const w = img.width * scale;
+            const h = img.height * scale;
+            const x = (canvas.width - w) / 2;
+            const y = (canvas.height - h) / 2;
+            ctx.fillStyle = SKETCH_BG;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, x, y, w, h);
+            onChange(canvas.toDataURL("image/png"));
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [onChange]);
+
+  const getPos = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  };
+
+  const handleDown = (e) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    canvas.setPointerCapture(e.pointerId);
+    drawingRef.current = true;
+    lastPointRef.current = getPos(e);
+  };
+
+  const handleMove = (e) => {
+    if (!drawingRef.current) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const pos = getPos(e);
+    // Pressure-sensitive when the input device (e.g. a stylus) reports it
+    const pressure = e.pressure && e.pressure > 0 ? e.pressure : 0.5;
+    ctx.strokeStyle = erasing ? SKETCH_BG : color;
+    ctx.lineWidth = erasing ? size * 2.5 : size * (0.5 + pressure);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    lastPointRef.current = pos;
+  };
+
+  const handleUp = () => {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    onChange(canvasRef.current.toDataURL("image/png"));
+  };
+
+  const handleClear = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = SKETCH_BG;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    onChange(canvas.toDataURL("image/png"));
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 px-6 py-4">
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <div className="flex gap-1.5">
+          {SKETCH_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => {
+                setErasing(false);
+                setColor(c);
+              }}
+              className="w-6 h-6 rounded-full"
+              style={{
+                background: c,
+                boxShadow: !erasing && color === c ? `0 0 0 2px ${T.bgB}, 0 0 0 3.5px ${accent}` : `0 0 0 1px ${T.borderSoft}`,
+              }}
+            />
+          ))}
+        </div>
+        <div className="h-5 w-px" style={{ background: T.borderStrong }} />
+        <div className="flex gap-1.5">
+          {SKETCH_SIZES.map((s) => (
+            <button
+              key={s}
+              onClick={() => setSize(s)}
+              className="flex items-center justify-center w-7 h-7 rounded-md border"
+              style={{ borderColor: size === s ? accent : T.borderStrong }}
+            >
+              <span className="rounded-full" style={{ width: s, height: s, background: size === s ? accent : T.textDim2 }} />
+            </button>
+          ))}
+        </div>
+        <div className="h-5 w-px" style={{ background: T.borderStrong }} />
+        <button
+          onClick={() => setErasing((v) => !v)}
+          className="text-base px-2.5 py-1.5 rounded-md border"
+          style={{
+            borderColor: erasing ? accent : T.borderStrong,
+            color: erasing ? accent : T.textDim2,
+            background: erasing ? T.activeBg : "transparent",
+          }}
+        >
+          Eraser
+        </button>
+        <button
+          onClick={handleClear}
+          className="text-base px-2.5 py-1.5 rounded-md border flex items-center gap-1"
+          style={{ borderColor: T.borderStrong, color: T.textDim2 }}
+        >
+          <Trash2 size={16} /> Clear
+        </button>
+        <span className="text-[15px] ml-auto hidden sm:inline" style={{ color: T.textDim5 }}>
+          Draw with stylus, finger, or mouse — or paste (Ctrl/Cmd+V) an image
+        </span>
+      </div>
+      <div
+        className="flex-1 rounded-lg overflow-hidden border min-h-0"
+        style={{ borderColor: T.borderStrong, background: SKETCH_BG }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={1000}
+          height={640}
+          className="w-full h-full"
+          style={{ touchAction: "none", cursor: erasing ? "cell" : "crosshair" }}
+          onPointerDown={handleDown}
+          onPointerMove={handleMove}
+          onPointerUp={handleUp}
+          onPointerLeave={handleUp}
+          onPointerCancel={handleUp}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default function QuestLog() {
+  const [categories, setCategories] = useState(BUILTIN_CATEGORIES);
+  const [notes, setNotes] = useState(buildEmptyNotes(BUILTIN_CATEGORIES));
+  const [activeCategory, setActiveCategory] = useState("quest");
+  const [activeNoteId, setActiveNoteId] = useState(null);
+  const [showHome, setShowHome] = useState(true);
+  const [theme, setTheme] = useState("purple");
+  const [loaded, setLoaded] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [saveState, setSaveState] = useState("idle"); // idle | saving | saved
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatIcon, setNewCatIcon] = useState("Sparkles");
+  const [newCatColor, setNewCatColor] = useState(COLOR_CHOICES[0]);
+  const [newCatType, setNewCatType] = useState("text");
+  const [copyFeedback, setCopyFeedback] = useState(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState("yearly");
+  const [isPremium, setIsPremium] = useState(false);
+  const [upgradeToast, setUpgradeToast] = useState(false);
+  const [checkoutUnavailable, setCheckoutUnavailable] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
+  const dictationBaseRef = useRef("");
+  const dictationNoteIdRef = useRef(null);
+  const saveTimer = useRef(null);
+
+  // Load from storage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const savedCategories = migrateCategories(
+          Array.isArray(parsed.categories) && parsed.categories.length ? parsed.categories : BUILTIN_CATEGORIES
+        );
+        const savedNotes = parsed.notes || {};
+        const mergedNotes = buildEmptyNotes(savedCategories);
+        Object.keys(mergedNotes).forEach((k) => {
+          if (Array.isArray(savedNotes[k])) mergedNotes[k] = savedNotes[k];
+        });
+        setCategories(savedCategories);
+        setNotes(mergedNotes);
+        if (parsed.theme && THEME_PALETTES[parsed.theme]) setTheme(parsed.theme);
+      }
+    } catch (e) {
+      // no existing data yet, or it was corrupted — start fresh
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  // Premium unlock: Stripe Payment Links redirect back here with ?upgraded=1 on success.
+  // There's no backend to verify the purchase server-side, so this is an honor-system
+  // unlock — acceptable for a client-only app with no gated data, not a substitute for
+  // real entitlement checks if higher-value features get gated later.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("upgraded") === "1") {
+      localStorage.setItem(PREMIUM_KEY, "true");
+      setIsPremium(true);
+      setUpgradeToast(true);
+      window.history.replaceState({}, "", window.location.pathname);
+      setTimeout(() => setUpgradeToast(false), 5000);
+    } else {
+      setIsPremium(localStorage.getItem(PREMIUM_KEY) === "true");
+    }
+  }, []);
+
+  const persist = useCallback((nextNotes, nextCategories, nextTheme) => {
+    setSaveState("saving");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ notes: nextNotes, categories: nextCategories, theme: nextTheme })
+        );
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 1200);
+      } catch (e) {
+        setSaveState("idle");
+      }
+    }, 450);
+  }, []);
+
+  const changeTheme = (nextTheme) => {
+    setTheme(nextTheme);
+    persist(notes, categories, nextTheme);
+  };
+
+  const updateNotes = (updater) => {
+    setNotes((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      persist(next, categories, theme);
+      return next;
+    });
+  };
+
+  const activeList = notes[activeCategory] || [];
+  const activeNote = activeList.find((n) => n.id === activeNoteId) || null;
+
+  const createNote = (catKey) => {
+    const key = catKey || activeCategory;
+    const cat = categories.find((c) => c.key === key);
+    const n =
+      cat && cat.type === "sketch"
+        ? { id: uid(), title: "", image: null, updatedAt: Date.now() }
+        : { id: uid(), title: "", content: "", updatedAt: Date.now() };
+    updateNotes((prev) => ({ ...prev, [key]: [n, ...(prev[key] || [])] }));
+    setActiveCategory(key);
+    setActiveNoteId(n.id);
+    setShowHome(false);
+    setSidebarOpen(false);
+  };
+
+  const deleteNote = (id) => {
+    updateNotes((prev) => ({
+      ...prev,
+      [activeCategory]: prev[activeCategory].filter((n) => n.id !== id),
+    }));
+    if (activeNoteId === id) setActiveNoteId(null);
+  };
+
+  const copyEntry = async (note, type) => {
+    try {
+      if (type === "sketch") {
+        if (!note.image) return;
+        const blob = await (await fetch(note.image)).blob();
+        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+      } else {
+        const text = note.title ? `${note.title}\n\n${note.content || ""}` : note.content || "";
+        await navigator.clipboard.writeText(text);
+      }
+      setCopyFeedback(note.id);
+      setTimeout(() => setCopyFeedback(null), 1500);
+    } catch (e) {
+      // Clipboard access can fail (permissions, unsupported browser) — fail quietly
+    }
+  };
+
+  const dictationSupported =
+    typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  const stopDictation = () => {
+    if (recognitionRef.current) recognitionRef.current.stop();
+    setListening(false);
+  };
+
+  const startDictation = (note) => {
+    if (!dictationSupported) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    dictationBaseRef.current = note.content || "";
+    dictationNoteIdRef.current = note.id;
+    if (dictationBaseRef.current && !/\s$/.test(dictationBaseRef.current)) {
+      dictationBaseRef.current += " ";
+    }
+
+    recognition.onresult = (e) => {
+      let finalText = "";
+      let interimText = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const transcript = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += transcript;
+        else interimText += transcript;
+      }
+      if (finalText) {
+        dictationBaseRef.current += finalText.trim() + " ";
+      }
+      editNote(dictationNoteIdRef.current, "content", dictationBaseRef.current + interimText);
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  const toggleDictation = (note) => {
+    if (listening) {
+      stopDictation();
+    } else {
+      startDictation(note);
+    }
+  };
+
+  // Stop dictation automatically if the person navigates away from the note being dictated into
+  useEffect(() => {
+    if (listening && activeNoteId !== dictationNoteIdRef.current) {
+      stopDictation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNoteId, showHome]);
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) recognitionRef.current.stop();
+    };
+  }, []);
+
+  const editNote = (id, field, value) => {
+    updateNotes((prev) => ({
+      ...prev,
+      [activeCategory]: prev[activeCategory].map((n) =>
+        n.id === id ? { ...n, [field]: value, updatedAt: Date.now() } : n
+      ),
+    }));
+  };
+
+  const addCategory = () => {
+    const label = newCatName.trim();
+    if (!label) return;
+    const key = slugify(label);
+    const cat = { key, label, icon: newCatIcon, accent: newCatColor, builtin: false, type: newCatType };
+    const nextCategories = [...categories, cat];
+    setCategories(nextCategories);
+    setNotes((prev) => {
+      const next = { ...prev, [key]: [] };
+      persist(next, nextCategories, theme);
+      return next;
+    });
+    setNewCatName("");
+    setNewCatIcon("Sparkles");
+    setNewCatColor(COLOR_CHOICES[0]);
+    setNewCatType("text");
+    setShowAddCategory(false);
+    setActiveCategory(key);
+    setShowHome(false);
+  };
+
+  const deleteCategory = (key) => {
+    if (!window.confirm("Delete this category and all its entries? This can't be undone.")) return;
+    const nextCategories = categories.filter((c) => c.key !== key);
+    setCategories(nextCategories);
+    setNotes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      persist(next, nextCategories, theme);
+      return next;
+    });
+    if (activeCategory === key) {
+      setShowHome(true);
+      setActiveNoteId(null);
+    }
+  };
+
+  const catMeta = categories.find((c) => c.key === activeCategory) || categories[0];
+  const T = THEME_PALETTES[theme] || THEME_PALETTES.purple;
+
+  if (!loaded) {
+    return (
+      <div
+        className="h-full w-full flex items-center justify-center"
+        style={{ background: T.bgB, color: T.textDim1 }}
+      >
+        <div className="flex flex-col items-center gap-3">
+          <QuillMark size={64} logoFrom={T.logoFrom} logoTo={T.logoTo} />
+          <span className="text-lg tracking-widest uppercase" style={{ fontFamily: "'Cinzel', serif" }}>
+            Unrolling the parchment…
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="h-full w-full flex overflow-hidden relative"
+      style={{
+        background: `radial-gradient(ellipse at top left, ${T.bgA} 0%, ${T.bgB} 55%, ${T.bgC} 100%)`,
+        color: T.textPrimary,
+        fontFamily: "'Crimson Pro', 'Georgia', serif",
+      }}
+    >
+      <style>{`
+        .qlog-scroll::-webkit-scrollbar { width: 8px; }
+        .qlog-scroll::-webkit-scrollbar-track { background: transparent; }
+        .qlog-scroll::-webkit-scrollbar-thumb { background: ${T.borderSoft}; border-radius: 8px; }
+        textarea:focus, input:focus { outline: none; }
+        .cat-row:hover .cat-delete { opacity: 1; }
+      `}</style>
+
+      {/* Mobile sidebar toggle */}
+      <button
+        onClick={() => setSidebarOpen((s) => !s)}
+        className="md:hidden absolute top-3 right-3 z-30 p-2 rounded-lg border"
+        style={{ background: `${T.bgA}cc`, borderColor: T.borderSoft, color: T.textPrimary }}
+      >
+        {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
+
+      {/* Sidebar */}
+      <aside
+        className={`z-20 flex flex-col shrink-0 border-r transition-transform duration-200 absolute md:relative h-full ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        }`}
+        style={{ width: "230px", background: T.panelHeader, borderColor: T.borderStrong, backdropFilter: "blur(6px)" }}
+      >
+        <button
+          onClick={() => {
+            setShowHome(true);
+            setSidebarOpen(false);
+          }}
+          className="flex items-center gap-2 px-4 py-4 border-b text-left transition-colors"
+          style={{ borderColor: T.borderStrong }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = T.panelHeaderHover)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          title="Return to home"
+        >
+          <QuillMark size={46} logoFrom={T.logoFrom} logoTo={T.logoTo} />
+          <div>
+            <div className="text-2xl leading-tight tracking-wide" style={{ fontFamily: "'Cinzel', serif", color: T.textPrimary }}>
+              Quest Log
+            </div>
+            <div className="text-[15px] tracking-widest uppercase" style={{ color: "#c9a961" }}>
+              Session Notes
+            </div>
+          </div>
+        </button>
+
+        <nav className="flex-1 px-2 py-3 flex flex-col gap-1 overflow-y-auto qlog-scroll">
+          <button
+            onClick={() => {
+              setShowHome(true);
+              setSidebarOpen(false);
+            }}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-lg transition-colors mb-1"
+            style={{
+              background: showHome ? T.activeBg : "transparent",
+              color: showHome ? T.textBright : T.textDim1,
+              boxShadow: showHome ? "inset 3px 0 0 #c9a961" : "none",
+            }}
+          >
+            <Home size={24} style={{ color: showHome ? "#c9a961" : T.textDim4 }} />
+            <span style={{ fontFamily: "'Cinzel', serif", letterSpacing: "0.02em" }}>Home</span>
+          </button>
+          <div className="h-px mx-3 my-1" style={{ background: T.borderStrong }} />
+
+          {categories.map((c) => {
+            const active = !showHome && c.key === activeCategory;
+            return (
+              <div key={c.key} className="cat-row relative flex items-center">
+                <button
+                  onClick={() => {
+                    setActiveCategory(c.key);
+                    setActiveNoteId(null);
+                    setShowHome(false);
+                    setSidebarOpen(false);
+                  }}
+                  className="flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg text-lg transition-colors min-w-0"
+                  style={{
+                    background: active ? T.activeBg : "transparent",
+                    color: active ? T.textBright : T.textDim1,
+                    boxShadow: active ? `inset 3px 0 0 ${c.accent}` : "none",
+                  }}
+                >
+                  <CategoryIcon name={c.icon} size={30} style={{ color: active ? c.accent : T.textDim4 }} />
+                  <span className="truncate" style={{ fontFamily: "'Cinzel', serif", letterSpacing: "0.02em" }}>
+                    {c.label}
+                  </span>
+                  <span className="ml-auto text-base shrink-0" style={{ color: T.textDim5 }}>
+                    {notes[c.key]?.length || 0}
+                  </span>
+                </button>
+                {!c.builtin && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteCategory(c.key);
+                    }}
+                    className="cat-delete opacity-0 transition-opacity absolute right-1.5 p-1 rounded"
+                    style={{ color: T.textDim2 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = T.hoverBg)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    title="Delete category"
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          {showAddCategory ? (
+            <div className="mt-2 mx-1 p-3 rounded-lg border" style={{ borderColor: T.borderSoft, background: T.panelForm }}>
+              <input
+                autoFocus
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addCategory()}
+                placeholder="Category name…"
+                className="w-full bg-transparent border-b text-lg px-1 py-1.5 mb-2"
+                style={{ borderColor: T.borderSoft, color: T.textPrimary }}
+              />
+              <div className="flex gap-1.5 mb-2">
+                {[
+                  { v: "text", label: "Text" },
+                  { v: "sketch", label: "Sketch" },
+                ].map((opt) => (
+                  <button
+                    key={opt.v}
+                    onClick={() => setNewCatType(opt.v)}
+                    className="flex-1 text-[15px] py-1 rounded-md border"
+                    style={{
+                      borderColor: newCatType === opt.v ? newCatColor : T.borderStrong,
+                      color: newCatType === opt.v ? newCatColor : T.textDim2,
+                      background: newCatType === opt.v ? T.activeBg : "transparent",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-6 gap-1.5 mb-2">
+                {ICON_CHOICES.map((iconName) => (
+                  <button
+                    key={iconName}
+                    onClick={() => setNewCatIcon(iconName)}
+                    className="flex items-center justify-center p-1.5 rounded-md border"
+                    style={{
+                      borderColor: newCatIcon === iconName ? newCatColor : T.borderStrong,
+                      background: newCatIcon === iconName ? T.activeBg : "transparent",
+                    }}
+                  >
+                    <CategoryIcon
+                      name={iconName}
+                      size={20}
+                      style={{ color: newCatIcon === iconName ? newCatColor : T.textDim2 }}
+                    />
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1.5 mb-3">
+                {COLOR_CHOICES.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => setNewCatColor(color)}
+                    className="w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{
+                      background: color,
+                      boxShadow: newCatColor === color ? `0 0 0 2px ${T.bgB}, 0 0 0 3.5px ${color}` : "none",
+                    }}
+                  >
+                    {newCatColor === color && <Check size={15} color={T.bgB} />}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={addCategory}
+                  disabled={!newCatName.trim()}
+                  className="flex-1 text-base py-1.5 rounded-md border disabled:opacity-40"
+                  style={{ borderColor: newCatColor, color: newCatColor }}
+                >
+                  Create
+                </button>
+                <button
+                  onClick={() => setShowAddCategory(false)}
+                  className="flex-1 text-base py-1.5 rounded-md border"
+                  style={{ borderColor: T.borderSoft, color: T.textDim2 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAddCategory(true)}
+              className="flex items-center gap-3 px-3 py-2.5 mt-1 rounded-lg text-lg transition-colors border border-dashed"
+              style={{ borderColor: T.borderSoft, color: T.textDim2 }}
+            >
+              <Plus size={19} />
+              <span style={{ fontFamily: "'Cinzel', serif" }}>Add Category</span>
+            </button>
+          )}
+        </nav>
+
+        <div className="px-4 py-3 border-t" style={{ borderColor: T.borderStrong }}>
+          <button
+            onClick={() => setShowUpgrade(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border text-base transition hover:brightness-110"
+            style={{ borderColor: "#c9a961", color: "#c9a961", background: `${T.activeBg}` }}
+          >
+            <Crown size={18} />
+            <span style={{ fontFamily: "'Cinzel', serif" }}>Upgrade</span>
+          </button>
+          <div className="flex items-center gap-2 mb-2.5">
+            {Object.entries(THEME_PALETTES).map(([key, pal]) => (
+              <button
+                key={key}
+                onClick={() => changeTheme(key)}
+                title={pal.label}
+                className="w-6 h-6 rounded-full transition"
+                style={{
+                  background: pal.swatch,
+                  boxShadow: theme === key ? `0 0 0 2px ${T.bgB}, 0 0 0 3.5px ${pal.swatch}` : `0 0 0 1px ${T.borderSoft}`,
+                }}
+              />
+            ))}
+          </div>
+          <div className="text-[15px] flex items-center gap-2" style={{ color: T.textDim5 }}>
+            <Feather size={16} />
+            {saveState === "saving" ? "Inscribing…" : saveState === "saved" ? "Saved to your device" : "Auto-saves as you write"}
+          </div>
+        </div>
+      </aside>
+
+      {sidebarOpen && (
+        <div className="md:hidden absolute inset-0 bg-black/50 z-10" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {showHome ? (
+        <main className="flex-1 overflow-y-auto qlog-scroll z-10 px-6 md:px-10 py-10">
+          <div className="flex items-center gap-4 mb-8">
+            <QuillMark size={60} logoFrom={T.logoFrom} logoTo={T.logoTo} />
+            <div className="flex-1 min-w-0">
+              <div className="text-4xl tracking-wide" style={{ fontFamily: "'Cinzel', serif", color: T.textBright }}>
+                Welcome back, adventurer
+              </div>
+              <div className="text-lg mt-1" style={{ color: T.textDim1 }}>
+                {Object.values(notes).reduce((s, l) => s + l.length, 0)} entries recorded across your campaign
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (isPremium) {
+                  exportCampaignToPdf(categories, notes);
+                } else {
+                  setShowUpgrade(true);
+                }
+              }}
+              className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-lg border text-base shrink-0 hover:brightness-110 transition"
+              style={{ borderColor: "#c9a961", color: "#c9a961" }}
+              title={isPremium ? "Export your campaign as a PDF" : "Upgrade to unlock PDF export"}
+            >
+              <FileText size={17} />
+              Export to PDF
+              {!isPremium && <Crown size={14} />}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10 relative z-10">
+            {categories.map((c) => {
+              const list = notes[c.key] || [];
+              const latest = list.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0];
+              return (
+                <button
+                  key={c.key}
+                  onClick={() => {
+                    setActiveCategory(c.key);
+                    setActiveNoteId(null);
+                    setShowHome(false);
+                  }}
+                  className="text-left p-4 rounded-xl border transition hover:brightness-110"
+                  style={{ borderColor: T.borderStrong, background: T.panelCard }}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <CategoryIcon name={c.icon} size={44} style={{ color: c.accent }} />
+                      <span
+                        className="text-3xl truncate"
+                        style={{ fontFamily: "'Cinzel', serif", color: T.textPrimary }}
+                      >
+                        {c.label}
+                      </span>
+                    </div>
+                    <span className="text-5xl shrink-0 ml-2" style={{ fontFamily: "'Cinzel', serif", color: c.accent }}>
+                      {list.length}
+                    </span>
+                  </div>
+                  <div className="text-lg mt-1 truncate" style={{ color: T.textDim4 }}>
+                    {latest ? `Last: ${latest.title || "Untitled entry"}` : "No entries yet"}
+                  </div>
+                </button>
+              );
+            })}
+            <button
+              onClick={() => {
+                setShowHome(false);
+                setActiveCategory(categories[0]?.key);
+                setShowAddCategory(true);
+                setSidebarOpen(true);
+              }}
+              className="text-left p-4 rounded-xl border border-dashed flex flex-col items-center justify-center gap-2 transition hover:brightness-110"
+              style={{ borderColor: T.borderSoft, color: T.textDim2 }}
+            >
+              <Plus size={28} />
+              <span className="text-lg" style={{ fontFamily: "'Cinzel', serif" }}>
+                Add Category
+              </span>
+            </button>
+          </div>
+
+          <div className="relative h-0 z-0">
+            <QuillWatermark
+              size={230}
+              className="pointer-events-none absolute opacity-[0.08] select-none"
+              style={{ top: "-170px", right: "22%" }}
+              stroke={T.logoFrom}
+            />
+          </div>
+
+          <div className="relative z-10">
+            <div className="mb-4 text-lg tracking-widest uppercase" style={{ color: "#c9a961", fontFamily: "'Cinzel', serif" }}>
+              Quick Add
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {categories.map((c) => (
+                <button
+                  key={c.key}
+                  onClick={() => createNote(c.key)}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg border text-lg hover:brightness-125 transition"
+                  style={{ borderColor: c.accent, color: c.accent }}
+                >
+                  <Plus size={18} />
+                  New {c.singular || c.label.replace(/s$/, "")}
+                </button>
+              ))}
+            </div>
+          </div>
+        </main>
+      ) : (
+        <>
+          {/* Notes list */}
+          <section
+            className="w-full md:w-72 shrink-0 border-r flex flex-col z-10"
+            style={{ borderColor: T.borderMed, background: T.panelList }}
+          >
+            <div className="flex items-center justify-between px-4 py-4 border-b" style={{ borderColor: T.borderMed }}>
+              <h2
+                className="text-xl tracking-wide flex items-center gap-2 min-w-0"
+                style={{ fontFamily: "'Cinzel', serif", color: catMeta.accent }}
+              >
+                <CategoryIcon name={catMeta.icon} size={28} />
+                <span className="truncate">{catMeta.label}</span>
+              </h2>
+              <button
+                onClick={() => createNote()}
+                className="p-1.5 rounded-md border text-base flex items-center gap-1 hover:brightness-125 transition shrink-0"
+                style={{ borderColor: catMeta.accent, color: catMeta.accent }}
+              >
+                <Plus size={18} /> New
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto qlog-scroll px-2 py-2">
+              {activeList.length === 0 && (
+                <div className="text-center text-lg px-4 py-10" style={{ color: T.textDim5 }}>
+                  No entries yet.
+                  <br />
+                  Begin your {catMeta.label.toLowerCase()} log.
+                </div>
+              )}
+              {activeList
+                .slice()
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => setActiveNoteId(n.id)}
+                    className="w-full text-left px-3 py-2.5 rounded-lg mb-1 transition-colors"
+                    style={{
+                      background: activeNoteId === n.id ? T.activeBg : "transparent",
+                      color: T.textPrimary,
+                    }}
+                  >
+                    <div className="text-lg truncate" style={{ fontWeight: 500 }}>
+                      {n.title || "Untitled entry"}
+                    </div>
+                    {catMeta.type === "sketch" ? (
+                      n.image ? (
+                        <img
+                          src={n.image}
+                          alt=""
+                          className="w-full h-12 object-cover rounded mt-1 border"
+                          style={{ borderColor: T.borderStrong }}
+                        />
+                      ) : (
+                        <div className="text-base truncate mt-0.5" style={{ color: T.textDim3 }}>
+                          Blank sketch
+                        </div>
+                      )
+                    ) : (
+                      <div className="text-base truncate mt-0.5" style={{ color: T.textDim3 }}>
+                        {n.content ? n.content.slice(0, 48) : "No content"}
+                      </div>
+                    )}
+                    <div className="text-[14px] mt-1" style={{ color: "#4d4066" }}>
+                      {timeAgo(n.updatedAt)}
+                    </div>
+                  </button>
+                ))}
+            </div>
+          </section>
+
+          {/* Editor */}
+          <main className="flex-1 flex flex-col z-10 min-w-0">
+            {activeNote ? (
+              <>
+                <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: T.borderMed }}>
+                  <input
+                    value={activeNote.title}
+                    onChange={(e) => editNote(activeNote.id, "title", e.target.value)}
+                    placeholder="Entry title…"
+                    className="bg-transparent text-3xl w-full pr-4"
+                    style={{ fontFamily: "'Cinzel', serif", color: T.textBright }}
+                  />
+                  {catMeta.type !== "sketch" && dictationSupported && (
+                    <button
+                      onClick={() => toggleDictation(activeNote)}
+                      className="p-2 rounded-md transition shrink-0"
+                      style={{ color: listening ? "#e0623d" : T.textDim2 }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = T.borderStrong)}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      title={listening ? "Stop dictation" : "Dictate entry (speech to text)"}
+                    >
+                      {listening ? <Mic size={22} className="animate-pulse" /> : <MicOff size={22} />}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => copyEntry(activeNote, catMeta.type)}
+                    className="p-2 rounded-md transition shrink-0"
+                    style={{ color: copyFeedback === activeNote.id ? "#7fbf8f" : T.textDim2 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = T.borderStrong)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    title={catMeta.type === "sketch" ? "Copy sketch as image" : "Copy entry text"}
+                  >
+                    {copyFeedback === activeNote.id ? <Check size={22} /> : <Copy size={22} />}
+                  </button>
+                  <button
+                    onClick={() => deleteNote(activeNote.id)}
+                    className="p-2 rounded-md transition shrink-0"
+                    style={{ color: "#c76b6b" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = T.borderStrong)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    title="Delete entry"
+                  >
+                    <Trash2 size={22} />
+                  </button>
+                </div>
+                {catMeta.type === "sketch" ? (
+                  <SketchPad
+                    note={activeNote}
+                    accent={catMeta.accent}
+                    T={T}
+                    onChange={(dataUrl) => editNote(activeNote.id, "image", dataUrl)}
+                  />
+                ) : (
+                  <div className="flex-1 relative min-h-0">
+                    <textarea
+                      value={activeNote.content}
+                      onChange={(e) => editNote(activeNote.id, "content", e.target.value)}
+                      placeholder={PLACEHOLDERS[activeCategory] || `Write your ${catMeta.label.toLowerCase()} entry…`}
+                      className="w-full h-full bg-transparent resize-none px-6 py-5 text-[19px] leading-relaxed qlog-scroll"
+                      style={{ color: T.contentText }}
+                    />
+                    {listening && dictationNoteIdRef.current === activeNote.id && (
+                      <div
+                        className="absolute top-3 right-6 flex items-center gap-2 px-3 py-1.5 rounded-full text-base"
+                        style={{ background: T.activeBg, color: "#e0623d", border: `1px solid ${T.borderSoft}` }}
+                      >
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#e0623d" }} />
+                        Listening…
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
+                <QuillMark size={72} logoFrom={T.logoFrom} logoTo={T.logoTo} />
+                <div>
+                  <div className="text-2xl" style={{ fontFamily: "'Cinzel', serif", color: T.textPrimary }}>
+                    Select or create an entry
+                  </div>
+                  <div className="text-lg mt-1" style={{ color: T.textDim3 }}>
+                    {catMeta.type === "sketch"
+                      ? `Your ${catMeta.label.toLowerCase()} await their next stroke.`
+                      : `Your ${catMeta.label.toLowerCase()} await their next line.`}
+                  </div>
+                </div>
+                <button
+                  onClick={() => createNote()}
+                  className="mt-2 px-5 py-2.5 rounded-lg border text-lg flex items-center gap-2 hover:brightness-125 transition"
+                  style={{ borderColor: catMeta.accent, color: catMeta.accent }}
+                >
+                  <Plus size={19} /> New {catMeta.singular || catMeta.label.replace(/s$/, "")}
+                </button>
+              </div>
+            )}
+          </main>
+        </>
+      )}
+
+      {showUpgrade && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(3px)" }}
+          onClick={() => setShowUpgrade(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border overflow-hidden qlog-scroll"
+            style={{ background: T.panelCard, borderColor: "#c9a961", maxHeight: "90vh", overflowY: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative px-7 pt-7 pb-5 text-center border-b" style={{ borderColor: T.borderStrong }}>
+              <button
+                onClick={() => setShowUpgrade(false)}
+                className="absolute top-3 right-3 p-1.5 rounded-md hover:brightness-125 transition"
+                style={{ color: T.textDim2 }}
+              >
+                <X size={20} />
+              </button>
+              <div className="flex justify-center mb-3">
+                <QuillMark size={48} logoFrom={T.logoFrom} logoTo={T.logoTo} />
+              </div>
+              <div className="text-2xl tracking-wide" style={{ fontFamily: "'Cinzel', serif", color: "#c9a961" }}>
+                {isPremium ? "You're Upgraded" : "Unlock the Full Scroll"}
+              </div>
+              <div className="text-base mt-1.5" style={{ color: T.textDim1 }}>
+                {isPremium
+                  ? "Thank you for supporting Quest Log."
+                  : "Keep every campaign safe, shareable, and with you everywhere."}
+              </div>
+            </div>
+
+            <div className="px-7 py-5 flex flex-col gap-4 border-b" style={{ borderColor: T.borderStrong }}>
+              {[
+                { icon: Cloud, title: "Cloud Sync & Backup", desc: "Start on your laptop, pick up on your phone at the table.", available: false },
+                { icon: FileText, title: "Export to PDF", desc: "Turn any campaign into a printable campaign bible.", available: true },
+                { icon: Share2, title: "Share with Your Party", desc: "Send a curated recap link to the whole table.", available: false },
+              ].map((f) => (
+                <div key={f.title} className="flex items-start gap-3">
+                  <div
+                    className="shrink-0 w-9 h-9 rounded-lg flex items-center justify-center"
+                    style={{ background: T.activeBg, color: "#c9a961" }}
+                  >
+                    <f.icon size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="text-base font-medium" style={{ color: T.textPrimary }}>
+                        {f.title}
+                      </div>
+                      {!f.available && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0"
+                          style={{ border: `1px solid ${T.borderSoft}`, color: T.textDim3 }}
+                        >
+                          Coming soon
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm" style={{ color: T.textDim3 }}>
+                      {f.desc}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {isPremium ? (
+              <div className="px-7 py-5">
+                <button
+                  onClick={() => setShowUpgrade(false)}
+                  className="w-full py-3 rounded-lg text-lg tracking-wide hover:brightness-110 transition"
+                  style={{ background: "#c9a961", color: T.bgB, fontFamily: "'Cinzel', serif" }}
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <div className="px-7 py-5">
+                <div className="grid grid-cols-3 gap-2 mb-5">
+                  {[
+                    { key: "monthly", label: "Monthly", price: "$3.99", sub: "/mo" },
+                    { key: "yearly", label: "Yearly", price: "$24.99", sub: "/yr", badge: "Best Value" },
+                    { key: "lifetime", label: "Lifetime", price: "$49.99", sub: "once" },
+                  ].map((p) => (
+                    <button
+                      key={p.key}
+                      onClick={() => setSelectedPlan(p.key)}
+                      className="relative flex flex-col items-center gap-0.5 py-3 px-1 rounded-lg border transition"
+                      style={{
+                        borderColor: selectedPlan === p.key ? "#c9a961" : T.borderStrong,
+                        background: selectedPlan === p.key ? T.activeBg : "transparent",
+                      }}
+                    >
+                      {p.badge && (
+                        <span
+                          className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-full text-[10px] whitespace-nowrap"
+                          style={{ background: "#c9a961", color: T.bgB, fontFamily: "'Cinzel', serif" }}
+                        >
+                          {p.badge}
+                        </span>
+                      )}
+                      <span className="text-sm mt-1" style={{ color: T.textDim2, fontFamily: "'Cinzel', serif" }}>
+                        {p.label}
+                      </span>
+                      <span className="text-lg" style={{ color: selectedPlan === p.key ? "#c9a961" : T.textPrimary }}>
+                        {p.price}
+                      </span>
+                      <span className="text-xs" style={{ color: T.textDim4 }}>
+                        {p.sub}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => {
+                    const link = PAYMENT_LINKS[selectedPlan];
+                    if (!link) {
+                      setCheckoutUnavailable(true);
+                      return;
+                    }
+                    window.location.href = link;
+                  }}
+                  className="w-full py-3 rounded-lg text-lg tracking-wide hover:brightness-110 transition"
+                  style={{ background: "#c9a961", color: T.bgB, fontFamily: "'Cinzel', serif" }}
+                >
+                  Upgrade Now
+                </button>
+                {checkoutUnavailable ? (
+                  <div className="text-center text-xs mt-2" style={{ color: "#e0623d" }}>
+                    Checkout isn't configured for this plan yet.
+                  </div>
+                ) : (
+                  <div className="text-center text-xs mt-2" style={{ color: T.textDim5 }}>
+                    Secure checkout via Stripe.
+                  </div>
+                )}
+                <button
+                  onClick={() => setShowUpgrade(false)}
+                  className="w-full text-center text-sm mt-3 hover:underline"
+                  style={{ color: T.textDim3 }}
+                >
+                  Maybe later
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {upgradeToast && (
+        <div
+          className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-5 py-3 rounded-lg border shadow-lg"
+          style={{ background: T.panelCard, borderColor: "#c9a961", color: T.textPrimary }}
+        >
+          <Check size={18} style={{ color: "#c9a961" }} />
+          Upgrade successful — PDF export unlocked.
+        </div>
+      )}
+    </div>
+  );
+}
