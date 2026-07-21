@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { jsPDF } from "jspdf";
+import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
 import {
   Sword,
   BookOpen,
@@ -365,6 +366,54 @@ function exportCampaignToPdf(categories, notes) {
   doc.save(`quest-log-campaign-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
+const RECAP_VERSION = 1;
+
+// Party Sharing has no backend — the recap is encoded straight into the URL (compressed via
+// lz-string), so the link itself IS the data. That means: no server storage, but also no live
+// updates after sharing (it's a snapshot), and no images — sketch entries would blow past
+// practical URL length limits even compressed, so only text categories are shareable this way.
+function buildRecapLink(categories, notes, selectedIds) {
+  const shareableCategories = categories.filter((c) => c.type !== "sketch");
+  const payload = { v: RECAP_VERSION, categories: [], entries: [] };
+  const usedCatKeys = new Set();
+
+  shareableCategories.forEach((cat) => {
+    (notes[cat.key] || []).forEach((note) => {
+      if (!selectedIds.has(note.id)) return;
+      usedCatKeys.add(cat.key);
+      payload.entries.push({
+        c: cat.key,
+        t: note.title || "",
+        b: note.content || "",
+      });
+    });
+  });
+
+  payload.categories = shareableCategories
+    .filter((c) => usedCatKeys.has(c.key))
+    .map((c) => ({ key: c.key, label: c.label, icon: c.icon, accent: c.accent }));
+
+  if (payload.entries.length === 0) return null;
+
+  const encoded = compressToEncodedURIComponent(JSON.stringify(payload));
+  return `${window.location.origin}${window.location.pathname}#recap=${encoded}`;
+}
+
+function readRecapFromUrl() {
+  const hash = window.location.hash;
+  const match = hash.match(/^#recap=(.+)$/);
+  if (!match) return null;
+  try {
+    const json = decompressFromEncodedURIComponent(match[1]);
+    if (!json) return null;
+    const payload = JSON.parse(json);
+    if (payload && payload.v === RECAP_VERSION && Array.isArray(payload.entries)) return payload;
+  } catch (e) {
+    // malformed or truncated link — fall through to null
+  }
+  return null;
+}
+
 // Feather quill over parchment logo mark
 function QuillMark({ size = 40, glow = true, logoFrom = "#a970ff", logoTo = "#5b8fd6" }) {
   return (
@@ -456,6 +505,91 @@ function QuillWatermark({
 function CategoryIcon({ name, size = 17, style }) {
   const Icon = ICON_MAP[name] || Sparkles;
   return <Icon size={size} style={style} />;
+}
+
+// Read-only view for a shared recap link — entirely self-contained from the URL, no
+// storage reads/writes, no editing. Rendered instead of the normal app when the page
+// loads with a #recap= hash.
+function RecapView({ payload }) {
+  const T = THEME_PALETTES.purple;
+  const catByKey = {};
+  payload.categories.forEach((c) => (catByKey[c.key] = c));
+
+  return (
+    <div
+      className="h-full w-full overflow-y-auto qlog-scroll"
+      style={{
+        background: `radial-gradient(ellipse at top left, ${T.bgA} 0%, ${T.bgB} 55%, ${T.bgC} 100%)`,
+        color: T.textPrimary,
+        fontFamily: "'Crimson Pro', 'Georgia', serif",
+      }}
+    >
+      <style>{`
+        .qlog-scroll::-webkit-scrollbar { width: 8px; }
+        .qlog-scroll::-webkit-scrollbar-track { background: transparent; }
+        .qlog-scroll::-webkit-scrollbar-thumb { background: ${T.borderSoft}; border-radius: 8px; }
+      `}</style>
+      <div className="max-w-2xl mx-auto px-6 py-12">
+        <div className="flex items-center gap-3 mb-2">
+          <QuillMark size={40} logoFrom={T.logoFrom} logoTo={T.logoTo} />
+          <div>
+            <div className="text-2xl" style={{ fontFamily: "'Cinzel', serif", color: T.textBright }}>
+              Quest Log
+            </div>
+            <div className="text-[13px] tracking-widest uppercase" style={{ color: "#c9a961" }}>
+              Shared Campaign Recap
+            </div>
+          </div>
+        </div>
+        <div className="text-base mb-10" style={{ color: T.textDim3 }}>
+          A fellow adventurer shared this snapshot with you. It won't update if they edit their
+          notes later.
+        </div>
+
+        {payload.entries.length === 0 ? (
+          <div className="text-lg" style={{ color: T.textDim3 }}>
+            This recap link doesn't have any entries in it.
+          </div>
+        ) : (
+          payload.categories.map((cat) => {
+            const entries = payload.entries.filter((e) => e.c === cat.key);
+            if (entries.length === 0) return null;
+            return (
+              <div key={cat.key} className="mb-10">
+                <div className="flex items-center gap-2 mb-4 pb-2 border-b" style={{ borderColor: T.borderStrong }}>
+                  <CategoryIcon name={cat.icon} size={24} style={{ color: cat.accent }} />
+                  <span className="text-2xl" style={{ fontFamily: "'Cinzel', serif", color: T.textPrimary }}>
+                    {cat.label}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-6">
+                  {entries.map((e, i) => (
+                    <div key={i}>
+                      <div className="text-lg mb-1" style={{ fontWeight: 600, color: T.textBright }}>
+                        {e.t || "Untitled entry"}
+                      </div>
+                      <div className="text-[17px] leading-relaxed whitespace-pre-wrap" style={{ color: T.contentText }}>
+                        {e.b || "(no content)"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        <div className="mt-16 pt-6 border-t text-center" style={{ borderColor: T.borderStrong }}>
+          <div className="text-sm" style={{ color: T.textDim4 }}>
+            Keep your own campaign notes with{" "}
+            <a href="https://lunaticproductionsmedia.com" style={{ color: "#c9a961" }}>
+              Quest Log
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SketchPad({ note, onChange, accent, T }) {
@@ -644,6 +778,7 @@ function SketchPad({ note, onChange, accent, T }) {
 }
 
 export default function QuestLog() {
+  const [recapPayload] = useState(() => readRecapFromUrl());
   const [categories, setCategories] = useState(BUILTIN_CATEGORIES);
   const [notes, setNotes] = useState(buildEmptyNotes(BUILTIN_CATEGORIES));
   const [activeCategory, setActiveCategory] = useState("quest");
@@ -664,6 +799,10 @@ export default function QuestLog() {
   const [isPremium, setIsPremium] = useState(false);
   const [upgradeToast, setUpgradeToast] = useState(false);
   const [checkoutUnavailable, setCheckoutUnavailable] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareSelectedIds, setShareSelectedIds] = useState(() => new Set());
+  const [shareLink, setShareLink] = useState(null);
+  const [shareCopyFeedback, setShareCopyFeedback] = useState(false);
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef(null);
   const dictationBaseRef = useRef("");
@@ -897,6 +1036,10 @@ export default function QuestLog() {
 
   const catMeta = categories.find((c) => c.key === activeCategory) || categories[0];
   const T = THEME_PALETTES[theme] || THEME_PALETTES.purple;
+
+  if (recapPayload) {
+    return <RecapView payload={recapPayload} />;
+  }
 
   if (!loaded) {
     return (
@@ -1186,6 +1329,24 @@ export default function QuestLog() {
             >
               <FileText size={17} />
               Export to PDF
+              {!isPremium && <Crown size={14} />}
+            </button>
+            <button
+              onClick={() => {
+                if (isPremium) {
+                  setShareLink(null);
+                  setShareSelectedIds(new Set());
+                  setShowShareModal(true);
+                } else {
+                  setShowUpgrade(true);
+                }
+              }}
+              className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-lg border text-base shrink-0 hover:brightness-110 transition"
+              style={{ borderColor: "#c9a961", color: "#c9a961" }}
+              title={isPremium ? "Share a recap with your party" : "Upgrade to unlock party sharing"}
+            >
+              <Share2 size={17} />
+              Share with Party
               {!isPremium && <Crown size={14} />}
             </button>
           </div>
@@ -1479,7 +1640,7 @@ export default function QuestLog() {
               {[
                 { icon: Cloud, title: "Cloud Sync & Backup", desc: "Start on your laptop, pick up on your phone at the table.", available: false },
                 { icon: FileText, title: "Export to PDF", desc: "Turn any campaign into a printable campaign bible.", available: true },
-                { icon: Share2, title: "Share with Your Party", desc: "Send a curated recap link to the whole table.", available: false },
+                { icon: Share2, title: "Share with Your Party", desc: "Send a curated recap link to the whole table.", available: true },
               ].map((f) => (
                 <div key={f.title} className="flex items-start gap-3">
                   <div
@@ -1601,6 +1762,131 @@ export default function QuestLog() {
         >
           <Check size={18} style={{ color: "#c9a961" }} />
           Upgrade successful — PDF export unlocked.
+        </div>
+      )}
+
+      {showShareModal && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(3px)" }}
+          onClick={() => setShowShareModal(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border overflow-hidden qlog-scroll flex flex-col"
+            style={{ background: T.panelCard, borderColor: "#c9a961", maxHeight: "90vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative px-7 pt-7 pb-5 text-center border-b shrink-0" style={{ borderColor: T.borderStrong }}>
+              <button
+                onClick={() => setShowShareModal(false)}
+                className="absolute top-3 right-3 p-1.5 rounded-md hover:brightness-125 transition"
+                style={{ color: T.textDim2 }}
+              >
+                <X size={20} />
+              </button>
+              <div className="flex justify-center mb-3">
+                <Share2 size={36} style={{ color: "#c9a961" }} />
+              </div>
+              <div className="text-2xl tracking-wide" style={{ fontFamily: "'Cinzel', serif", color: "#c9a961" }}>
+                Share with Your Party
+              </div>
+              <div className="text-base mt-1.5" style={{ color: T.textDim1 }}>
+                Pick a few entries for a recap link. Sketches can't be included — image data is
+                too large to fit in a link.
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto qlog-scroll px-7 py-5">
+              {categories.filter((c) => c.type !== "sketch").every((c) => (notes[c.key] || []).length === 0) ? (
+                <div className="text-base text-center py-6" style={{ color: T.textDim3 }}>
+                  No shareable entries yet — sketches aside, write something first.
+                </div>
+              ) : (
+                categories
+                  .filter((c) => c.type !== "sketch" && (notes[c.key] || []).length > 0)
+                  .map((cat) => (
+                    <div key={cat.key} className="mb-5">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CategoryIcon name={cat.icon} size={18} style={{ color: cat.accent }} />
+                        <span className="text-base" style={{ fontFamily: "'Cinzel', serif", color: T.textPrimary }}>
+                          {cat.label}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        {(notes[cat.key] || [])
+                          .slice()
+                          .sort((a, b) => b.updatedAt - a.updatedAt)
+                          .map((note) => (
+                            <label
+                              key={note.id}
+                              className="flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer transition"
+                              style={{ background: shareSelectedIds.has(note.id) ? T.activeBg : "transparent" }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={shareSelectedIds.has(note.id)}
+                                onChange={(e) => {
+                                  setShareLink(null);
+                                  setShareSelectedIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(note.id);
+                                    else next.delete(note.id);
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <span className="text-[15px] truncate" style={{ color: T.textPrimary }}>
+                                {note.title || "Untitled entry"}
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            <div className="px-7 py-5 border-t shrink-0" style={{ borderColor: T.borderStrong }}>
+              {shareLink ? (
+                <div>
+                  <div
+                    className="text-[13px] mb-3 px-3 py-2 rounded-lg border break-all"
+                    style={{ borderColor: T.borderSoft, color: T.textDim2, maxHeight: "80px", overflowY: "auto" }}
+                  >
+                    {shareLink}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(shareLink);
+                        setShareCopyFeedback(true);
+                        setTimeout(() => setShareCopyFeedback(false), 1500);
+                      } catch (e) {
+                        // clipboard access can fail — link is still visible to copy manually
+                      }
+                    }}
+                    className="w-full py-3 rounded-lg text-lg tracking-wide hover:brightness-110 transition flex items-center justify-center gap-2"
+                    style={{ background: "#c9a961", color: T.bgB, fontFamily: "'Cinzel', serif" }}
+                  >
+                    {shareCopyFeedback ? <Check size={20} /> : <Copy size={20} />}
+                    {shareCopyFeedback ? "Copied!" : "Copy Link"}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    const link = buildRecapLink(categories, notes, shareSelectedIds);
+                    if (link) setShareLink(link);
+                  }}
+                  disabled={shareSelectedIds.size === 0}
+                  className="w-full py-3 rounded-lg text-lg tracking-wide hover:brightness-110 transition disabled:opacity-40"
+                  style={{ background: "#c9a961", color: T.bgB, fontFamily: "'Cinzel', serif" }}
+                >
+                  Generate Link ({shareSelectedIds.size} selected)
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
