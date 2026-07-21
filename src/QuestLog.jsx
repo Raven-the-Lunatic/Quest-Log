@@ -1491,7 +1491,7 @@ export default function QuestLog() {
                 {Object.values(notes).reduce((s, l) => s + l.length, 0)} entries recorded across your campaign
               </div>
             </div>
-            <div className="hidden sm:flex flex-col gap-2 shrink-0">
+            <div className="hidden sm:flex flex-col items-end gap-2 shrink-0 ml-auto">
               <button
                 onClick={() => {
                   if (isPremium) {
