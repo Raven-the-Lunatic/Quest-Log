@@ -37,6 +37,7 @@ import {
   Share2,
   LogOut,
   Loader2,
+  ChevronLeft,
 } from "lucide-react";
 
 // ---- Design tokens ----
@@ -1611,9 +1612,10 @@ export default function QuestLog() {
         </main>
       ) : (
         <>
-          {/* Notes list */}
+          {/* Notes list — on mobile this and the editor are mutually exclusive (list/detail
+              pattern); both show side by side from md: up. */}
           <section
-            className="w-full md:w-72 shrink-0 border-r flex flex-col z-10"
+            className={`${activeNoteId ? "hidden" : "flex"} md:flex w-full md:w-72 shrink-0 border-r flex-col z-10`}
             style={{ borderColor: T.borderMed, background: T.panelList }}
           >
             <div className="flex items-center justify-between px-4 py-4 border-b" style={{ borderColor: T.borderMed }}>
@@ -1684,10 +1686,18 @@ export default function QuestLog() {
           </section>
 
           {/* Editor */}
-          <main className="flex-1 flex flex-col z-10 min-w-0">
+          <main className={`${activeNoteId ? "flex" : "hidden"} md:flex flex-1 flex-col z-10 min-w-0`}>
             {activeNote ? (
               <>
                 <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: T.borderMed }}>
+                  <button
+                    onClick={() => setActiveNoteId(null)}
+                    className="md:hidden p-2 -ml-2 mr-1 rounded-md transition shrink-0"
+                    style={{ color: T.textDim2 }}
+                    title="Back to list"
+                  >
+                    <ChevronLeft size={22} />
+                  </button>
                   <input
                     value={activeNote.title}
                     onChange={(e) => editNote(activeNote.id, "title", e.target.value)}
