@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { jsPDF } from "jspdf";
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
+import { supabase } from "./supabaseClient";
 import {
   Sword,
   BookOpen,
@@ -34,6 +35,8 @@ import {
   Cloud,
   FileText,
   Share2,
+  LogOut,
+  Loader2,
 } from "lucide-react";
 
 // ---- Design tokens ----
@@ -803,6 +806,13 @@ export default function QuestLog() {
   const [shareSelectedIds, setShareSelectedIds] = useState(() => new Set());
   const [shareLink, setShareLink] = useState(null);
   const [shareCopyFeedback, setShareCopyFeedback] = useState(false);
+  const [session, setSession] = useState(null);
+  const [cloudPremium, setCloudPremium] = useState(false);
+  const [showCloudPanel, setShowCloudPanel] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authStatus, setAuthStatus] = useState("idle"); // idle | sending | sent | error
+  const [cloudSyncState, setCloudSyncState] = useState("idle"); // idle | loading | syncing | synced | error
+  const [showImportPrompt, setShowImportPrompt] = useState(false);
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef(null);
   const dictationBaseRef = useRef("");
@@ -851,22 +861,105 @@ export default function QuestLog() {
     }
   }, []);
 
+  // Cloud Sync auth — entirely optional. If Supabase isn't configured (no env vars),
+  // `supabase` is null and this just never fires; the app behaves exactly like the
+  // localStorage-only free tier.
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      if (!newSession) {
+        setCloudPremium(false);
+        setCloudSyncState("idle");
+      }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // On sign-in: check real (server-verified) premium status, then either load existing
+  // cloud data (if this account already has some) or offer to import what's on this
+  // device. Deliberately reads `categories`/`notes`/`theme` from the closure at the
+  // moment of sign-in rather than reacting to their later changes — this should run once
+  // per sign-in event, not on every keystroke.
+  useEffect(() => {
+    if (!supabase || !session) return;
+    setCloudSyncState("loading");
+    (async () => {
+      const { data: premiumRow } = await supabase
+        .from("premium_status")
+        .select("is_premium")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      setCloudPremium(Boolean(premiumRow?.is_premium));
+
+      const { data: cloudRow } = await supabase
+        .from("campaign_data")
+        .select("categories, notes, theme")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      const cloudHasData =
+        cloudRow && Array.isArray(cloudRow.categories) && cloudRow.categories.length > 0 &&
+        cloudRow.notes && Object.values(cloudRow.notes).some((l) => Array.isArray(l) && l.length > 0);
+      const localHasData = Object.values(notes).some((l) => l.length > 0);
+
+      if (cloudHasData) {
+        const savedCategories = migrateCategories(cloudRow.categories);
+        const mergedNotes = buildEmptyNotes(savedCategories);
+        Object.keys(mergedNotes).forEach((k) => {
+          if (Array.isArray(cloudRow.notes[k])) mergedNotes[k] = cloudRow.notes[k];
+        });
+        setCategories(savedCategories);
+        setNotes(mergedNotes);
+        if (cloudRow.theme && THEME_PALETTES[cloudRow.theme]) setTheme(cloudRow.theme);
+        setCloudSyncState("synced");
+      } else if (localHasData) {
+        setShowImportPrompt(true);
+        setCloudSyncState("idle");
+      } else {
+        await supabase.from("campaign_data").upsert({
+          user_id: session.user.id,
+          categories,
+          notes,
+          theme,
+          updated_at: new Date().toISOString(),
+        });
+        setCloudSyncState("synced");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
   const persist = useCallback((nextNotes, nextCategories, nextTheme) => {
     setSaveState("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
+    saveTimer.current = setTimeout(async () => {
       try {
         localStorage.setItem(
           STORAGE_KEY,
           JSON.stringify({ notes: nextNotes, categories: nextCategories, theme: nextTheme })
         );
+        // localStorage always stays the source of truth for the free tier and as an
+        // offline cache; Supabase sync is additive, only for signed-in cloud-premium users.
+        if (supabase && session && cloudPremium) {
+          setCloudSyncState("syncing");
+          const { error } = await supabase.from("campaign_data").upsert({
+            user_id: session.user.id,
+            categories: nextCategories,
+            notes: nextNotes,
+            theme: nextTheme,
+            updated_at: new Date().toISOString(),
+          });
+          setCloudSyncState(error ? "error" : "synced");
+        }
         setSaveState("saved");
         setTimeout(() => setSaveState("idle"), 1200);
       } catch (e) {
         setSaveState("idle");
       }
     }, 450);
-  }, []);
+  }, [session, cloudPremium]);
 
   const changeTheme = (nextTheme) => {
     setTheme(nextTheme);
@@ -1032,6 +1125,67 @@ export default function QuestLog() {
       setShowHome(true);
       setActiveNoteId(null);
     }
+  };
+
+  const sendMagicLink = async () => {
+    if (!supabase || !authEmail.trim()) return;
+    setAuthStatus("sending");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: authEmail.trim(),
+      options: { emailRedirectTo: window.location.origin + window.location.pathname },
+    });
+    setAuthStatus(error ? "error" : "sent");
+  };
+
+  const signOutCloud = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setShowCloudPanel(false);
+  };
+
+  const importLocalToCloud = async () => {
+    if (!supabase || !session) return;
+    setCloudSyncState("syncing");
+    const { error } = await supabase.from("campaign_data").upsert({
+      user_id: session.user.id,
+      categories,
+      notes,
+      theme,
+      updated_at: new Date().toISOString(),
+    });
+    setCloudSyncState(error ? "error" : "synced");
+    setShowImportPrompt(false);
+  };
+
+  const startFreshInCloud = async () => {
+    if (!supabase || !session) return;
+    setCloudSyncState("syncing");
+    const emptyCategories = BUILTIN_CATEGORIES;
+    const emptyNotes = buildEmptyNotes(emptyCategories);
+    const { error } = await supabase.from("campaign_data").upsert({
+      user_id: session.user.id,
+      categories: emptyCategories,
+      notes: emptyNotes,
+      theme: "purple",
+      updated_at: new Date().toISOString(),
+    });
+    setCategories(emptyCategories);
+    setNotes(emptyNotes);
+    setTheme("purple");
+    setCloudSyncState(error ? "error" : "synced");
+    setShowImportPrompt(false);
+  };
+
+  // Appends client_reference_id when signed in so the Stripe webhook can link the
+  // purchase back to a Supabase account and grant real (server-verified) Cloud Sync
+  // access. Anonymous checkouts (not signed in) still work exactly as before — they just
+  // get the honor-system unlock for PDF export / party sharing, no Cloud Sync.
+  const paymentLinkFor = (plan) => {
+    const base = PAYMENT_LINKS[plan];
+    if (!base) return null;
+    if (!session) return base;
+    const separator = base.includes("?") ? "&" : "?";
+    return `${base}${separator}client_reference_id=${encodeURIComponent(session.user.id)}`;
   };
 
   const catMeta = categories.find((c) => c.key === activeCategory) || categories[0];
@@ -1272,12 +1426,34 @@ export default function QuestLog() {
         <div className="px-4 py-3 border-t" style={{ borderColor: T.borderStrong }}>
           <button
             onClick={() => setShowUpgrade(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border text-base transition hover:brightness-110"
+            className="w-full flex items-center gap-2 px-3 py-2 mb-2 rounded-lg border text-base transition hover:brightness-110"
             style={{ borderColor: "#c9a961", color: "#c9a961", background: `${T.activeBg}` }}
           >
             <Crown size={18} />
             <span style={{ fontFamily: "'Cinzel', serif" }}>Upgrade</span>
           </button>
+          {supabase && (
+            <button
+              onClick={() => setShowCloudPanel(true)}
+              className="w-full flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border text-base transition hover:brightness-110"
+              style={{ borderColor: T.borderSoft, color: session && cloudPremium ? "#6fe0a0" : T.textDim2 }}
+            >
+              {cloudSyncState === "loading" || cloudSyncState === "syncing" ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Cloud size={18} />
+              )}
+              <span style={{ fontFamily: "'Cinzel', serif" }}>
+                {session && cloudPremium
+                  ? cloudSyncState === "syncing"
+                    ? "Syncing…"
+                    : "Synced"
+                  : session
+                  ? "Cloud Sync"
+                  : "Sign in to Sync"}
+              </span>
+            </button>
+          )}
           <div className="flex items-center gap-2 mb-2.5">
             {Object.entries(THEME_PALETTES).map(([key, pal]) => (
               <button
@@ -1638,7 +1814,7 @@ export default function QuestLog() {
 
             <div className="px-7 py-5 flex flex-col gap-4 border-b" style={{ borderColor: T.borderStrong }}>
               {[
-                { icon: Cloud, title: "Cloud Sync & Backup", desc: "Start on your laptop, pick up on your phone at the table.", available: false },
+                { icon: Cloud, title: "Cloud Sync & Backup", desc: "Start on your laptop, pick up on your phone at the table.", available: true },
                 { icon: FileText, title: "Export to PDF", desc: "Turn any campaign into a printable campaign bible.", available: true },
                 { icon: Share2, title: "Share with Your Party", desc: "Send a curated recap link to the whole table.", available: true },
               ].map((f) => (
@@ -1721,7 +1897,7 @@ export default function QuestLog() {
 
                 <button
                   onClick={() => {
-                    const link = PAYMENT_LINKS[selectedPlan];
+                    const link = paymentLinkFor(selectedPlan);
                     if (!link) {
                       setCheckoutUnavailable(true);
                       return;
@@ -1886,6 +2062,173 @@ export default function QuestLog() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showCloudPanel && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(3px)" }}
+          onClick={() => setShowCloudPanel(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border overflow-hidden"
+            style={{ background: T.panelCard, borderColor: "#c9a961" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative px-7 pt-7 pb-6 text-center">
+              <button
+                onClick={() => setShowCloudPanel(false)}
+                className="absolute top-3 right-3 p-1.5 rounded-md hover:brightness-125 transition"
+                style={{ color: T.textDim2 }}
+              >
+                <X size={20} />
+              </button>
+              <div className="flex justify-center mb-3">
+                <Cloud size={36} style={{ color: "#c9a961" }} />
+              </div>
+              <div className="text-2xl tracking-wide mb-4" style={{ fontFamily: "'Cinzel', serif", color: "#c9a961" }}>
+                Cloud Sync
+              </div>
+
+              {!session ? (
+                <div>
+                  <div className="text-base mb-4" style={{ color: T.textDim1 }}>
+                    Sign in to start syncing your campaign across devices. Free to create — no
+                    password needed.
+                  </div>
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full bg-transparent border rounded-lg px-3 py-2.5 text-base mb-3"
+                    style={{ borderColor: T.borderSoft, color: T.textPrimary }}
+                  />
+                  {authStatus === "sent" ? (
+                    <div className="text-base" style={{ color: "#6fe0a0" }}>
+                      Check your email for a sign-in link.
+                    </div>
+                  ) : (
+                    <button
+                      onClick={sendMagicLink}
+                      disabled={!authEmail.trim() || authStatus === "sending"}
+                      className="w-full py-2.5 rounded-lg text-base tracking-wide hover:brightness-110 transition disabled:opacity-40"
+                      style={{ background: "#c9a961", color: T.bgB, fontFamily: "'Cinzel', serif" }}
+                    >
+                      {authStatus === "sending" ? "Sending…" : "Send Sign-In Link"}
+                    </button>
+                  )}
+                  {authStatus === "error" && (
+                    <div className="text-sm mt-2" style={{ color: "#e0623d" }}>
+                      Couldn't send the link — check the email and try again.
+                    </div>
+                  )}
+                </div>
+              ) : !cloudPremium ? (
+                <div>
+                  <div className="text-base mb-1" style={{ color: T.textDim1 }}>
+                    Signed in as <span style={{ color: T.textPrimary }}>{session.user.email}</span>
+                  </div>
+                  <div className="text-base mb-4" style={{ color: T.textDim1 }}>
+                    Upgrade to enable syncing for this account.
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    {[
+                      { key: "monthly", label: "Monthly", price: "$3.99" },
+                      { key: "yearly", label: "Yearly", price: "$24.99" },
+                      { key: "lifetime", label: "Lifetime", price: "$49.99" },
+                    ].map((p) => (
+                      <a
+                        key={p.key}
+                        href={paymentLinkFor(p.key) || "#"}
+                        onClick={(e) => {
+                          if (!paymentLinkFor(p.key)) e.preventDefault();
+                        }}
+                        className="flex flex-col items-center gap-0.5 py-2.5 px-1 rounded-lg border transition hover:brightness-110"
+                        style={{ borderColor: T.borderStrong, textDecoration: "none" }}
+                      >
+                        <span className="text-[13px]" style={{ color: T.textDim2, fontFamily: "'Cinzel', serif" }}>
+                          {p.label}
+                        </span>
+                        <span className="text-base" style={{ color: T.textPrimary }}>
+                          {p.price}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                  <button
+                    onClick={signOutCloud}
+                    className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm hover:brightness-125 transition"
+                    style={{ color: T.textDim3 }}
+                  >
+                    <LogOut size={14} /> Sign out
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-base mb-1" style={{ color: T.textDim1 }}>
+                    Signed in as <span style={{ color: T.textPrimary }}>{session.user.email}</span>
+                  </div>
+                  <div className="text-base mb-5 flex items-center justify-center gap-2" style={{ color: "#6fe0a0" }}>
+                    {cloudSyncState === "syncing" ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" /> Syncing…
+                      </>
+                    ) : (
+                      <>
+                        <Check size={16} /> Synced
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={signOutCloud}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border text-base hover:brightness-125 transition"
+                    style={{ borderColor: T.borderSoft, color: T.textDim2 }}
+                  >
+                    <LogOut size={16} /> Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showImportPrompt && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(3px)" }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border overflow-hidden px-7 py-7 text-center"
+            style={{ background: T.panelCard, borderColor: "#c9a961" }}
+          >
+            <div className="flex justify-center mb-3">
+              <Cloud size={36} style={{ color: "#c9a961" }} />
+            </div>
+            <div className="text-xl tracking-wide mb-3" style={{ fontFamily: "'Cinzel', serif", color: "#c9a961" }}>
+              Import Your Notes?
+            </div>
+            <div className="text-base mb-5" style={{ color: T.textDim1 }}>
+              This device has notes that aren't in your cloud account yet. Bring them along, or
+              start this account fresh and keep them local-only.
+            </div>
+            <button
+              onClick={importLocalToCloud}
+              className="w-full py-2.5 rounded-lg text-base tracking-wide hover:brightness-110 transition mb-2"
+              style={{ background: "#c9a961", color: T.bgB, fontFamily: "'Cinzel', serif" }}
+            >
+              Import to Cloud
+            </button>
+            <button
+              onClick={startFreshInCloud}
+              className="w-full py-2.5 rounded-lg text-base hover:brightness-125 transition"
+              style={{ color: T.textDim3 }}
+            >
+              Start Fresh
+            </button>
           </div>
         </div>
       )}
