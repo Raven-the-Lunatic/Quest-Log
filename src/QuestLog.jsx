@@ -1491,40 +1491,42 @@ export default function QuestLog() {
                 {Object.values(notes).reduce((s, l) => s + l.length, 0)} entries recorded across your campaign
               </div>
             </div>
-            <button
-              onClick={() => {
-                if (isPremium) {
-                  exportCampaignToPdf(categories, notes);
-                } else {
-                  setShowUpgrade(true);
-                }
-              }}
-              className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-lg border text-base shrink-0 hover:brightness-110 transition"
-              style={{ borderColor: "#c9a961", color: "#c9a961" }}
-              title={isPremium ? "Export your campaign as a PDF" : "Upgrade to unlock PDF export"}
-            >
-              <FileText size={17} />
-              Export to PDF
-              {!isPremium && <Crown size={14} />}
-            </button>
-            <button
-              onClick={() => {
-                if (isPremium) {
-                  setShareLink(null);
-                  setShareSelectedIds(new Set());
-                  setShowShareModal(true);
-                } else {
-                  setShowUpgrade(true);
-                }
-              }}
-              className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-lg border text-base shrink-0 hover:brightness-110 transition"
-              style={{ borderColor: "#c9a961", color: "#c9a961" }}
-              title={isPremium ? "Share a recap with your party" : "Upgrade to unlock party sharing"}
-            >
-              <Share2 size={17} />
-              Share with Party
-              {!isPremium && <Crown size={14} />}
-            </button>
+            <div className="hidden sm:flex flex-col gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  if (isPremium) {
+                    exportCampaignToPdf(categories, notes);
+                  } else {
+                    setShowUpgrade(true);
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border text-base hover:brightness-110 transition"
+                style={{ borderColor: "#c9a961", color: "#c9a961" }}
+                title={isPremium ? "Export your campaign as a PDF" : "Upgrade to unlock PDF export"}
+              >
+                <FileText size={17} />
+                Export to PDF
+                {!isPremium && <Crown size={14} />}
+              </button>
+              <button
+                onClick={() => {
+                  if (isPremium) {
+                    setShareLink(null);
+                    setShareSelectedIds(new Set());
+                    setShowShareModal(true);
+                  } else {
+                    setShowUpgrade(true);
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border text-base hover:brightness-110 transition"
+                style={{ borderColor: "#c9a961", color: "#c9a961" }}
+                title={isPremium ? "Share a recap with your party" : "Upgrade to unlock party sharing"}
+              >
+                <Share2 size={17} />
+                Share with Party
+                {!isPremium && <Crown size={14} />}
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10 relative z-10">
