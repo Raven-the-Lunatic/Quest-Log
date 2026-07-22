@@ -10,6 +10,7 @@ create table public.campaign_data (
   categories jsonb not null default '[]'::jsonb,
   notes jsonb not null default '{}'::jsonb,
   theme text not null default 'purple',
+  timeline jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
 );
 

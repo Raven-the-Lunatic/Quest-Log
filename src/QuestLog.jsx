@@ -38,6 +38,7 @@ import {
   LogOut,
   Loader2,
   ChevronLeft,
+  Milestone,
 } from "lucide-react";
 
 // ---- Design tokens ----
@@ -671,6 +672,89 @@ function RecapView({ payload }) {
   );
 }
 
+// Read-only, chronological view of pinned excerpts — it never generates its own content;
+// it only ever reflects what's been pinned from other entries via the "Milestone" button.
+function TimelineView({ timeline, categories, notes, T, onJump, onDelete }) {
+  const sorted = timeline.slice().sort((a, b) => a.addedAt - b.addedAt);
+
+  return (
+    <main className="flex-1 overflow-y-auto qlog-scroll z-10 px-6 md:px-10 py-10">
+      <div className="flex items-center gap-4 mb-10">
+        <Milestone size={52} style={{ color: "#c9a961" }} />
+        <div>
+          <div className="text-4xl tracking-wide" style={{ fontFamily: "'Cinzel', serif", color: T.textBright }}>
+            Timeline
+          </div>
+          <div className="text-lg mt-1" style={{ color: T.textDim1 }}>
+            {sorted.length === 0
+              ? "No moments pinned yet"
+              : `${sorted.length} moment${sorted.length === 1 ? "" : "s"} pinned from your campaign`}
+          </div>
+        </div>
+      </div>
+
+      {sorted.length === 0 ? (
+        <div className="text-lg max-w-md" style={{ color: T.textDim3 }}>
+          Highlight text in any entry, then tap the milestone icon that appears to pin it here.
+          The timeline builds itself as your campaign goes — it isn't edited directly.
+        </div>
+      ) : (
+        <div className="relative pl-8 max-w-2xl">
+          <div className="absolute left-[7px] top-2 bottom-2 w-px" style={{ background: T.borderStrong }} />
+          {sorted.map((entry) => {
+            const cat = categories.find((c) => c.key === entry.catKey);
+            const sourceExists = (notes[entry.catKey] || []).some((n) => n.id === entry.noteId);
+            return (
+              <div key={entry.id} className="relative mb-9">
+                <div
+                  className="absolute -left-8 top-1.5 w-3.5 h-3.5 rounded-full border-2"
+                  style={{ background: T.bgB, borderColor: cat ? cat.accent : "#c9a961" }}
+                />
+                <div className="text-[14px] mb-1.5 uppercase tracking-wide" style={{ color: T.textDim5 }}>
+                  {new Date(entry.addedAt).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </div>
+                <div className="text-[19px] leading-relaxed italic mb-2" style={{ color: T.contentText }}>
+                  "{entry.text}"
+                </div>
+                <div className="flex items-center gap-4 text-base">
+                  {sourceExists ? (
+                    <button
+                      onClick={() => onJump(entry)}
+                      className="flex items-center gap-1.5 min-w-0 hover:brightness-125 transition"
+                      style={{ color: cat ? cat.accent : T.textDim2 }}
+                    >
+                      {cat && <CategoryIcon name={cat.icon} size={15} />}
+                      <span className="truncate">
+                        {entry.catLabel} — {entry.noteTitle}
+                      </span>
+                    </button>
+                  ) : (
+                    <span className="italic" style={{ color: T.textDim5 }}>
+                      Source entry deleted
+                    </span>
+                  )}
+                  <button
+                    onClick={() => onDelete(entry.id)}
+                    className="p-1 rounded hover:brightness-125 transition shrink-0"
+                    style={{ color: T.textDim4 }}
+                    title="Remove from timeline"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </main>
+  );
+}
+
 function SketchPad({ note, onChange, onBgStyleChange, accent, T }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
@@ -888,6 +972,10 @@ export default function QuestLog() {
   const [activeCategory, setActiveCategory] = useState("quest");
   const [activeNoteId, setActiveNoteId] = useState(null);
   const [showHome, setShowHome] = useState(true);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [timeline, setTimeline] = useState([]);
+  const [selRange, setSelRange] = useState({ start: 0, end: 0 });
+  const contentRef = useRef(null);
   const [theme, setTheme] = useState("purple");
   const [loaded, setLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -937,6 +1025,7 @@ export default function QuestLog() {
         setCategories(savedCategories);
         setNotes(mergedNotes);
         if (parsed.theme && THEME_PALETTES[parsed.theme]) setTheme(parsed.theme);
+        if (Array.isArray(parsed.timeline)) setTimeline(parsed.timeline);
       }
     } catch (e) {
       // no existing data yet, or it was corrupted — start fresh
@@ -996,7 +1085,7 @@ export default function QuestLog() {
 
       const { data: cloudRow } = await supabase
         .from("campaign_data")
-        .select("categories, notes, theme")
+        .select("categories, notes, theme, timeline")
         .eq("user_id", session.user.id)
         .maybeSingle();
 
@@ -1014,6 +1103,7 @@ export default function QuestLog() {
         setCategories(savedCategories);
         setNotes(mergedNotes);
         if (cloudRow.theme && THEME_PALETTES[cloudRow.theme]) setTheme(cloudRow.theme);
+        if (Array.isArray(cloudRow.timeline)) setTimeline(cloudRow.timeline);
         setCloudSyncState("synced");
       } else if (localHasData) {
         setShowImportPrompt(true);
@@ -1024,6 +1114,7 @@ export default function QuestLog() {
           categories,
           notes,
           theme,
+          timeline,
           updated_at: new Date().toISOString(),
         });
         setCloudSyncState("synced");
@@ -1032,14 +1123,14 @@ export default function QuestLog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  const persist = useCallback((nextNotes, nextCategories, nextTheme) => {
+  const persist = useCallback((nextNotes, nextCategories, nextTheme, nextTimeline = timeline) => {
     setSaveState("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       try {
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ notes: nextNotes, categories: nextCategories, theme: nextTheme })
+          JSON.stringify({ notes: nextNotes, categories: nextCategories, theme: nextTheme, timeline: nextTimeline })
         );
         // localStorage always stays the source of truth for the free tier and as an
         // offline cache; Supabase sync is additive, only for signed-in cloud-premium users.
@@ -1050,6 +1141,7 @@ export default function QuestLog() {
             categories: nextCategories,
             notes: nextNotes,
             theme: nextTheme,
+            timeline: nextTimeline,
             updated_at: new Date().toISOString(),
           });
           setCloudSyncState(error ? "error" : "synced");
@@ -1060,7 +1152,7 @@ export default function QuestLog() {
         setSaveState("idle");
       }
     }, 450);
-  }, [session, cloudPremium]);
+  }, [session, cloudPremium, timeline]);
 
   const changeTheme = (nextTheme) => {
     setTheme(nextTheme);
@@ -1089,6 +1181,7 @@ export default function QuestLog() {
     setActiveCategory(key);
     setActiveNoteId(n.id);
     setShowHome(false);
+    setShowTimeline(false);
     setSidebarOpen(false);
   };
 
@@ -1098,6 +1191,48 @@ export default function QuestLog() {
       [activeCategory]: prev[activeCategory].filter((n) => n.id !== id),
     }));
     if (activeNoteId === id) setActiveNoteId(null);
+  };
+
+  const captureSelection = () => {
+    const ta = contentRef.current;
+    if (!ta) return;
+    setSelRange({ start: ta.selectionStart, end: ta.selectionEnd });
+  };
+
+  const addSelectionToTimeline = () => {
+    if (!activeNote || selRange.end <= selRange.start) return;
+    const text = activeNote.content.slice(selRange.start, selRange.end).trim();
+    if (!text) return;
+    const cat = categories.find((c) => c.key === activeCategory);
+    const entry = {
+      id: uid(),
+      text,
+      catKey: activeCategory,
+      catLabel: cat ? cat.label : activeCategory,
+      noteId: activeNote.id,
+      noteTitle: activeNote.title || "Untitled entry",
+      addedAt: Date.now(),
+    };
+    const nextTimeline = [...timeline, entry];
+    setTimeline(nextTimeline);
+    persist(notes, categories, theme, nextTimeline);
+    setSelRange({ start: 0, end: 0 });
+  };
+
+  const deleteTimelineEntry = (id) => {
+    const nextTimeline = timeline.filter((t) => t.id !== id);
+    setTimeline(nextTimeline);
+    persist(notes, categories, theme, nextTimeline);
+  };
+
+  const jumpToTimelineSource = (entry) => {
+    const sourceExists = (notes[entry.catKey] || []).some((n) => n.id === entry.noteId);
+    if (!sourceExists) return;
+    setActiveCategory(entry.catKey);
+    setActiveNoteId(entry.noteId);
+    setShowHome(false);
+    setShowTimeline(false);
+    setSidebarOpen(false);
   };
 
   const copyEntry = async (note, type) => {
@@ -1176,6 +1311,12 @@ export default function QuestLog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNoteId, showHome]);
 
+  // A stale text selection from a previous note shouldn't leave the "pin to timeline"
+  // button showing after switching notes
+  useEffect(() => {
+    setSelRange({ start: 0, end: 0 });
+  }, [activeNoteId]);
+
   useEffect(() => {
     return () => {
       if (recognitionRef.current) recognitionRef.current.stop();
@@ -1210,6 +1351,7 @@ export default function QuestLog() {
     setShowAddCategory(false);
     setActiveCategory(key);
     setShowHome(false);
+    setShowTimeline(false);
   };
 
   const deleteCategory = (key) => {
@@ -1224,6 +1366,7 @@ export default function QuestLog() {
     });
     if (activeCategory === key) {
       setShowHome(true);
+      setShowTimeline(false);
       setActiveNoteId(null);
     }
   };
@@ -1252,6 +1395,7 @@ export default function QuestLog() {
       categories,
       notes,
       theme,
+      timeline,
       updated_at: new Date().toISOString(),
     });
     setCloudSyncState(error ? "error" : "synced");
@@ -1268,11 +1412,13 @@ export default function QuestLog() {
       categories: emptyCategories,
       notes: emptyNotes,
       theme: "purple",
+      timeline: [],
       updated_at: new Date().toISOString(),
     });
     setCategories(emptyCategories);
     setNotes(emptyNotes);
     setTheme("purple");
+    setTimeline([]);
     setCloudSyncState(error ? "error" : "synced");
     setShowImportPrompt(false);
   };
@@ -1348,6 +1494,7 @@ export default function QuestLog() {
         <button
           onClick={() => {
             setShowHome(true);
+            setShowTimeline(false);
             setSidebarOpen(false);
           }}
           className="flex items-center gap-2 px-4 py-4 border-b text-left transition-colors"
@@ -1371,6 +1518,7 @@ export default function QuestLog() {
           <button
             onClick={() => {
               setShowHome(true);
+              setShowTimeline(false);
               setSidebarOpen(false);
             }}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-lg transition-colors mb-1"
@@ -1383,10 +1531,31 @@ export default function QuestLog() {
             <Home size={24} style={{ color: showHome ? "#c9a961" : T.textDim4 }} />
             <span style={{ fontFamily: "'Cinzel', serif", letterSpacing: "0.02em" }}>Home</span>
           </button>
+          <button
+            onClick={() => {
+              setShowTimeline(true);
+              setShowHome(false);
+              setSidebarOpen(false);
+            }}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-lg transition-colors mb-1"
+            style={{
+              background: showTimeline ? T.activeBg : "transparent",
+              color: showTimeline ? T.textBright : T.textDim1,
+              boxShadow: showTimeline ? "inset 3px 0 0 #c9a961" : "none",
+            }}
+          >
+            <Milestone size={24} style={{ color: showTimeline ? "#c9a961" : T.textDim4 }} />
+            <span style={{ fontFamily: "'Cinzel', serif", letterSpacing: "0.02em" }}>Timeline</span>
+            {timeline.length > 0 && (
+              <span className="ml-auto text-base shrink-0" style={{ color: T.textDim5 }}>
+                {timeline.length}
+              </span>
+            )}
+          </button>
           <div className="h-px mx-3 my-1" style={{ background: T.borderStrong }} />
 
           {categories.map((c) => {
-            const active = !showHome && c.key === activeCategory;
+            const active = !showHome && !showTimeline && c.key === activeCategory;
             return (
               <div key={c.key} className="cat-row relative flex items-center">
                 <button
@@ -1394,6 +1563,7 @@ export default function QuestLog() {
                     setActiveCategory(c.key);
                     setActiveNoteId(null);
                     setShowHome(false);
+                    setShowTimeline(false);
                     setSidebarOpen(false);
                   }}
                   className="flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg text-lg transition-colors min-w-0"
@@ -1580,7 +1750,16 @@ export default function QuestLog() {
         <div className="md:hidden absolute inset-0 bg-black/50 z-10" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {showHome ? (
+      {showTimeline ? (
+        <TimelineView
+          timeline={timeline}
+          categories={categories}
+          notes={notes}
+          T={T}
+          onJump={jumpToTimelineSource}
+          onDelete={deleteTimelineEntry}
+        />
+      ) : showHome ? (
         <main className="flex-1 overflow-y-auto qlog-scroll z-10 px-6 md:px-10 py-10">
           <div className="flex items-center gap-4 mb-8">
             <QuillMark size={60} logoFrom={T.logoFrom} logoTo={T.logoTo} />
@@ -1817,6 +1996,18 @@ export default function QuestLog() {
                       {listening ? <Mic size={22} className="animate-pulse" /> : <MicOff size={22} />}
                     </button>
                   )}
+                  {catMeta.type !== "sketch" && selRange.end > selRange.start && (
+                    <button
+                      onClick={addSelectionToTimeline}
+                      className="p-2 rounded-md transition shrink-0"
+                      style={{ color: "#c9a961" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = T.borderStrong)}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      title="Pin selected text to Timeline"
+                    >
+                      <Milestone size={22} />
+                    </button>
+                  )}
                   <button
                     onClick={() => copyEntry(activeNote, catMeta.type)}
                     className="p-2 rounded-md transition shrink-0"
@@ -1849,8 +2040,12 @@ export default function QuestLog() {
                 ) : (
                   <div className="flex-1 relative min-h-0">
                     <textarea
+                      ref={contentRef}
                       value={activeNote.content}
                       onChange={(e) => editNote(activeNote.id, "content", e.target.value)}
+                      onSelect={captureSelection}
+                      onMouseUp={captureSelection}
+                      onKeyUp={captureSelection}
                       placeholder={PLACEHOLDERS[activeCategory] || `Write your ${catMeta.label.toLowerCase()} entry…`}
                       className="w-full h-full bg-transparent resize-none px-6 py-5 text-[19px] leading-relaxed qlog-scroll"
                       style={{ color: T.contentText }}
