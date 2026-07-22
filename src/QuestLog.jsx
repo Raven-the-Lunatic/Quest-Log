@@ -229,6 +229,70 @@ const BUILTIN_CATEGORIES = [
 const SKETCH_COLORS = ["#1c140a", "#4a2a1c", "#7a1f1f", "#1f3a5c", "#1f5c3a", "#5c3a7a"];
 const SKETCH_BG = "#ece0c4";
 const SKETCH_SIZES = [3, 6, 12];
+const SKETCH_GRID_SPACING = 24; // px, at the canvas's native 1000x640 resolution
+const SKETCH_GRID_LINE = "rgba(74, 42, 28, 0.18)";
+
+// Shared between the live SketchPad canvas container and the note-list thumbnail wrapper —
+// the canvas itself is transparent (so drawings and the eraser work correctly regardless of
+// paper style), so whatever's "underneath" it needs to render the actual paper texture.
+function sketchBgStyle(bgStyle) {
+  if (bgStyle === "grid") {
+    return {
+      background: SKETCH_BG,
+      backgroundImage:
+        `linear-gradient(${SKETCH_GRID_LINE} 1px, transparent 1px), ` +
+        `linear-gradient(90deg, ${SKETCH_GRID_LINE} 1px, transparent 1px)`,
+      backgroundSize: `${SKETCH_GRID_SPACING}px ${SKETCH_GRID_SPACING}px`,
+    };
+  }
+  return { background: SKETCH_BG };
+}
+
+// Canvas-drawn equivalent of sketchBgStyle, used only where a flattened raster is required
+// (PDF export) since CSS backgrounds obviously don't get captured by canvas.toDataURL.
+function paintSketchBackground(ctx, width, height, bgStyle) {
+  ctx.fillStyle = SKETCH_BG;
+  ctx.fillRect(0, 0, width, height);
+  if (bgStyle === "grid") {
+    ctx.strokeStyle = "rgba(74, 42, 28, 0.32)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= width; x += SKETCH_GRID_SPACING) {
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= height; y += SKETCH_GRID_SPACING) {
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(width, y + 0.5);
+      ctx.stroke();
+    }
+  }
+}
+
+// Composites a note's transparent drawing over its chosen paper style into one flattened PNG
+// — needed for the PDF export, which can't render live CSS/canvas backgrounds itself.
+function compositeSketchForExport(note) {
+  return new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1000;
+    canvas.height = 640;
+    const ctx = canvas.getContext("2d");
+    paintSketchBackground(ctx, canvas.width, canvas.height, note.bgStyle || "plain");
+    if (!note.image) {
+      resolve(canvas.toDataURL("image/png"));
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => resolve(canvas.toDataURL("image/png"));
+    img.src = note.image;
+  });
+}
 
 const PLACEHOLDERS = {
   quest: "What's the objective? Who gave the quest? What's the reward…",
@@ -296,7 +360,17 @@ function buildEmptyNotes(categories) {
   return obj;
 }
 
-function exportCampaignToPdf(categories, notes) {
+async function exportCampaignToPdf(categories, notes) {
+  // Sketch entries need their background (plain/grid) composited in first — canvas image
+  // loading is async, so this has to happen before the otherwise-synchronous PDF build below.
+  const compositedSketches = new Map();
+  for (const cat of categories) {
+    if (cat.type !== "sketch") continue;
+    for (const note of notes[cat.key] || []) {
+      compositedSketches.set(note.id, await compositeSketchForExport(note));
+    }
+  }
+
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -343,11 +417,12 @@ function exportCampaignToPdf(categories, notes) {
       y += 16;
 
       if (cat.type === "sketch") {
-        if (note.image) {
+        const composited = compositedSketches.get(note.id);
+        if (composited) {
           const imgWidth = contentWidth;
           const imgHeight = imgWidth * (640 / 1000);
           ensureSpace(imgHeight + 20);
-          doc.addImage(note.image, "PNG", margin, y, imgWidth, imgHeight);
+          doc.addImage(composited, "PNG", margin, y, imgWidth, imgHeight);
           y += imgHeight + 24;
         } else {
           y += 12;
@@ -596,21 +671,24 @@ function RecapView({ payload }) {
   );
 }
 
-function SketchPad({ note, onChange, accent, T }) {
+function SketchPad({ note, onChange, onBgStyleChange, accent, T }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef(null);
   const [color, setColor] = useState(SKETCH_COLORS[0]);
   const [size, setSize] = useState(SKETCH_SIZES[1]);
   const [erasing, setErasing] = useState(false);
+  const bgStyle = note.bgStyle || "plain";
 
-  // Load the note's saved sketch whenever we switch to a different note
+  // Load the note's saved sketch whenever we switch to a different note. The canvas itself
+  // is always transparent — paper texture (plain/grid) is a CSS background on the container
+  // behind it, so the eraser and the paper-style toggle both work correctly no matter what's
+  // already been drawn.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = SKETCH_BG;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (note.image) {
       const img = new Image();
       img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -641,8 +719,7 @@ function SketchPad({ note, onChange, accent, T }) {
             const h = img.height * scale;
             const x = (canvas.width - w) / 2;
             const y = (canvas.height - h) / 2;
-            ctx.fillStyle = SKETCH_BG;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, x, y, w, h);
             onChange(canvas.toDataURL("image/png"));
           };
@@ -680,7 +757,10 @@ function SketchPad({ note, onChange, accent, T }) {
     const pos = getPos(e);
     // Pressure-sensitive when the input device (e.g. a stylus) reports it
     const pressure = e.pressure && e.pressure > 0 ? e.pressure : 0.5;
-    ctx.strokeStyle = erasing ? SKETCH_BG : color;
+    // Erasing punches transparent holes (destination-out) rather than painting a solid fill,
+    // so it works correctly no matter what paper style is showing through underneath.
+    ctx.globalCompositeOperation = erasing ? "destination-out" : "source-over";
+    ctx.strokeStyle = color;
     ctx.lineWidth = erasing ? size * 2.5 : size * (0.5 + pressure);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -688,6 +768,7 @@ function SketchPad({ note, onChange, accent, T }) {
     ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
     ctx.lineTo(pos.x, pos.y);
     ctx.stroke();
+    ctx.globalCompositeOperation = "source-over";
     lastPointRef.current = pos;
   };
 
@@ -700,8 +781,7 @@ function SketchPad({ note, onChange, accent, T }) {
   const handleClear = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = SKETCH_BG;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     onChange(canvas.toDataURL("image/png"));
   };
 
@@ -756,13 +836,33 @@ function SketchPad({ note, onChange, accent, T }) {
         >
           <Trash2 size={16} /> Clear
         </button>
+        <div className="h-5 w-px" style={{ background: T.borderStrong }} />
+        <div className="flex gap-1.5">
+          {[
+            { key: "plain", label: "Plain" },
+            { key: "grid", label: "Grid" },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => onBgStyleChange(opt.key)}
+              className="text-base px-2.5 py-1.5 rounded-md border"
+              style={{
+                borderColor: bgStyle === opt.key ? accent : T.borderStrong,
+                color: bgStyle === opt.key ? accent : T.textDim2,
+                background: bgStyle === opt.key ? T.activeBg : "transparent",
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <span className="text-[15px] ml-auto hidden sm:inline" style={{ color: T.textDim5 }}>
           Draw with stylus, finger, or mouse — or paste (Ctrl/Cmd+V) an image
         </span>
       </div>
       <div
         className="flex-1 rounded-lg overflow-hidden border min-h-0"
-        style={{ borderColor: T.borderStrong, background: SKETCH_BG }}
+        style={{ borderColor: T.borderStrong, ...sketchBgStyle(bgStyle) }}
       >
         <canvas
           ref={canvasRef}
@@ -983,7 +1083,7 @@ export default function QuestLog() {
     const cat = categories.find((c) => c.key === key);
     const n =
       cat && cat.type === "sketch"
-        ? { id: uid(), title: "", image: null, updatedAt: Date.now() }
+        ? { id: uid(), title: "", image: null, bgStyle: "plain", updatedAt: Date.now() }
         : { id: uid(), title: "", content: "", updatedAt: Date.now() };
     updateNotes((prev) => ({ ...prev, [key]: [n, ...(prev[key] || [])] }));
     setActiveCategory(key);
@@ -1661,12 +1761,12 @@ export default function QuestLog() {
                     </div>
                     {catMeta.type === "sketch" ? (
                       n.image ? (
-                        <img
-                          src={n.image}
-                          alt=""
-                          className="w-full h-12 object-cover rounded mt-1 border"
-                          style={{ borderColor: T.borderStrong }}
-                        />
+                        <div
+                          className="w-full h-12 rounded mt-1 border overflow-hidden"
+                          style={{ borderColor: T.borderStrong, ...sketchBgStyle(n.bgStyle) }}
+                        >
+                          <img src={n.image} alt="" className="w-full h-full object-cover" />
+                        </div>
                       ) : (
                         <div className="text-base truncate mt-0.5" style={{ color: T.textDim3 }}>
                           Blank sketch
@@ -1744,6 +1844,7 @@ export default function QuestLog() {
                     accent={catMeta.accent}
                     T={T}
                     onChange={(dataUrl) => editNote(activeNote.id, "image", dataUrl)}
+                    onBgStyleChange={(style) => editNote(activeNote.id, "bgStyle", style)}
                   />
                 ) : (
                   <div className="flex-1 relative min-h-0">
